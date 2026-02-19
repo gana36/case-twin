@@ -263,6 +263,96 @@
     border-radius: 2px;
     background: #d5e6f2;
   }
+
+  /* ── Agentic status animations ── */
+
+  @keyframes mr-pulse-glow {
+
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(10, 103, 143, 0);
+    }
+
+    50% {
+      box-shadow: 0 0 12px 3px rgba(10, 103, 143, 0.18);
+    }
+  }
+
+  @keyframes mr-scan {
+    0% {
+      transform: translateY(-100%);
+    }
+
+    100% {
+      transform: translateY(100%);
+    }
+  }
+
+  @keyframes mr-status-pulse {
+
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .mr-agentic-border {
+    animation: mr-pulse-glow 2.4s ease-in-out infinite;
+  }
+
+  .mr-scan-overlay {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .mr-scan-overlay::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom,
+        transparent,
+        rgba(10, 103, 143, 0.08),
+        transparent);
+    transform: translateY(-100%);
+    animation: mr-scan 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    pointer-events: none;
+  }
+
+  .mr-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--mr-action);
+    animation: mr-status-pulse 1.6s ease-in-out infinite;
+  }
+
+  .mr-status-dot--idle {
+    background: var(--mr-border);
+    animation: none;
+  }
+
+  .mr-status-dot--ready {
+    background: var(--mr-success);
+    animation: none;
+  }
+
+  .mr-dropzone {
+    border: 2px dashed var(--mr-border);
+    border-radius: 16px;
+    background: var(--mr-bg-subtle);
+    transition: border-color 160ms ease, background-color 160ms ease;
+    cursor: pointer;
+  }
+
+  .mr-dropzone--active {
+    border-color: var(--mr-action);
+    background: rgba(10, 103, 143, 0.04);
+  }
 }
 
 @media (max-width: 1024px) {
