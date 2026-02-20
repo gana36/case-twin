@@ -1,13 +1,13 @@
-import { useCallback, useRef, useState, useMemo, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useCallback, useRef, useState, useMemo, useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useDashboardStore } from "@/store/dashboardStore";
-import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse } from "lucide-react";
+import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope } from "lucide-react";
 import { searchByImage, type MatchItem as ApiMatchItem } from "@/lib/mockUploadApis";
 import { computeProfileConfidence } from "@/lib/caseProfileUtils";
 import { emptyProfile, type CaseProfile } from "@/lib/caseProfileTypes";
 import { CaseProfileView } from "@/components/CaseProfileView";
 import { AgenticCopilotPanel } from "@/components/AgenticCopilotPanel";
 import { cn } from "@/lib/utils";
-
+import { X, ChevronLeft } from "lucide-react";
 
 type Step = 0 | 1 | 2 | 3;
 type OutcomeVariant = "success" | "warning" | "neutral";
@@ -18,14 +18,16 @@ interface MatchItem {
   summary: string;
   facility: string;
   outcome: string;
-  outcomeVariant: OutcomeVariant;
-  image_url?: string;
+  outcomeVariant: "success" | "warning" | "neutral";
+  image_url: string; // <-- Remove optional since mockUploadApis promises a string
   age?: number;
   gender?: string;
   pmc_id?: string;
   article_title?: string;
-  case_text?: string;
+  journal?: string;
+  year?: string;
   radiology_view?: string;
+  case_text?: string;
 }
 
 interface RouteCenter {
@@ -39,44 +41,49 @@ const stepLabels = ["Upload", "Matches", "Route", "Memo"] as const;
 
 const matchItems: MatchItem[] = [
   {
-    score: 94,
-    diagnosis: "Small cell lung carcinoma",
-    summary: "Imaging pattern matches right hilar mass",
-    facility: "Mayo Clinic — Rochester",
-    outcome: "Complete response",
-    outcomeVariant: "success"
+    score: 98,
+    diagnosis: "Bilateral ground-glass opacities",
+    summary: "High concordance with presentation of acute hypoxemic respiratory failure.",
+    facility: "Mayo Clinic",
+    outcome: "Discharged at 14 days",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 91,
-    diagnosis: "NSCLC (adenocarcinoma)",
-    summary: "Pattern overlap with central chest lesion",
+    score: 82,
+    diagnosis: "Acute respiratory distress syndrome",
+    summary: "Matches pattern of diffuse bilateral alveolar damage.",
     facility: "Cleveland Clinic",
-    outcome: "Partial response",
-    outcomeVariant: "warning"
+    outcome: "Recovered via ECMO",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 89,
-    diagnosis: "Pulmonary carcinoid tumor",
-    summary: "Strong imaging and symptom similarity",
+    score: 85,
+    diagnosis: "Atypical pneumonia",
+    summary: "Similar peripheral distribution but less extensive consolidation.",
     facility: "Mass General",
-    outcome: "Good recovery",
-    outcomeVariant: "success"
+    outcome: "Required ICU transfer",
+    outcomeVariant: "warning",
+    image_url: ""
   },
   {
-    score: 86,
-    diagnosis: "Lymphoma (mediastinal)",
-    summary: "Clinical features partially align",
+    score: 74,
+    diagnosis: "Pulmonary alveolar proteinosis",
+    summary: "Some morphological overlap in 'crazy-paving' pattern.",
     facility: "Johns Hopkins",
-    outcome: "Remission",
-    outcomeVariant: "success"
+    outcome: "Improved post-lavage",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 84,
-    diagnosis: "Granulomatous disease",
-    summary: "Differential match with lower confidence",
-    facility: "UCSF",
-    outcome: "Resolved",
-    outcomeVariant: "neutral"
+    score: 61,
+    diagnosis: "Pulmonary edema",
+    summary: "Lower confidence match due to presence of cardiomegaly.",
+    facility: "UCSF Medical Center",
+    outcome: "Ongoing diuretic therapy",
+    outcomeVariant: "neutral",
+    image_url: ""
   }
 ];
 
@@ -386,36 +393,60 @@ function UploadScreen({
 function MatchCard({
   item,
   selected,
-  onSelect
+  onSelect,
+  condensed
 }: {
   item: MatchItem;
   selected: boolean;
   onSelect: () => void;
+  condensed?: boolean;
 }) {
-  const ringClass = item.score >= 90 ? "border-[var(--mr-action)]" : "border-[var(--mr-border)]";
+  const ringClass = item.score >= 90 ? "border-[var(--mr-action)] text-[var(--mr-action)]" : "border-[var(--mr-border)] text-[var(--mr-text)]";
+
+  if (condensed) {
+    return (
+      <article
+        className={cn(
+          "mr-surface flex flex-col gap-3 p-4 transition-all hover:bg-zinc-50 cursor-pointer overflow-hidden group",
+          selected ? "border-l-[4px] border-l-[var(--mr-action)] bg-blue-50/20" : "border-l-[4px] border-l-transparent"
+        )}
+        onClick={onSelect}
+      >
+        <div className="flex items-start justify-between">
+          <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[3px] bg-white", ringClass)}>
+            <span className="text-sm font-semibold">{item.score}%</span>
+          </div>
+          <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
+        </div>
+        <div className="space-y-1">
+          <h3 className="font-semibold text-zinc-900 text-[14px] leading-tight line-clamp-2 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</h3>
+          <p className="text-xs text-zinc-500 line-clamp-2">{item.summary}</p>
+        </div>
+        <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mt-1">{item.facility}</div>
+      </article>
+    );
+  }
 
   return (
     <article
       className={cn(
-        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center",
-        selected && "border-l-[3px] border-l-[var(--mr-action)]"
+        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center hover:shadow-md transition-all cursor-pointer group",
+        selected && "border-l-[3px] border-l-[var(--mr-action)] bg-blue-50/10"
       )}
+      onClick={onSelect}
     >
-      <div className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-[3px]", ringClass)}>
-        <span className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">{item.score}%</span>
+      <div className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-[3px] bg-white transition-colors group-hover:border-[var(--mr-action)] group-hover:text-[var(--mr-action)]", ringClass)}>
+        <span className="text-[17px] font-semibold leading-[22px]">{item.score}%</span>
       </div>
 
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="truncate text-[15px] font-semibold leading-[22px] text-[var(--mr-text)]">{item.diagnosis}</p>
-        <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">{item.summary}</p>
+      <div className="min-w-0 flex-1 space-y-1 pr-4">
+        <p className="truncate text-[16px] font-semibold leading-[22px] text-zinc-900 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</p>
+        <p className="text-[14px] leading-relaxed text-zinc-500">{item.summary}</p>
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 lg:items-end">
-        <p className="text-xs leading-4 text-[var(--mr-text)]">{item.facility}</p>
+        <p className="text-[13px] font-medium text-zinc-500 tracking-wide uppercase">{item.facility}</p>
         <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
-        <MedButton variant="secondary" size="sm" onClick={onSelect}>
-          Select
-        </MedButton>
       </div>
     </article>
   );
@@ -426,94 +457,365 @@ function MatchesScreen({
   onSelectMatch,
   onContinueToRoute,
   items,
-  isLoading
+  isLoading,
+  originalFile,
+  originalProfile,
 }: {
-  selectedMatch: number;
-  onSelectMatch: (index: number) => void;
+  selectedMatch: number | null;
+  onSelectMatch: (index: number | null) => void;
   onContinueToRoute: () => void;
   items: MatchItem[];
   isLoading: boolean;
+  originalFile: File | null;
+  originalProfile: CaseProfile | null;
 }) {
-  const selected = items[selectedMatch];
+  const selected = selectedMatch !== null ? items[selectedMatch] : null;
+
+  // Keep track of which match ID we've loaded insights for
+  const [lastInsightsMatchIdx, setLastInsightsMatchIdx] = useState<number | null>(null);
+
+  const originalPreviewUrl = useMemo(() => {
+    if (originalFile && originalFile.type.startsWith("image/")) {
+      return URL.createObjectURL(originalFile);
+    }
+    return null;
+  }, [originalFile]);
+
+  const [showInsights, setShowInsights] = useState(false);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insights, setInsights] = useState<{
+    similarity_text: string;
+    original_box: [number, number, number, number];
+    match_box: [number, number, number, number];
+  } | null>(null);
+
+  // Clear insights if the selected match has changed
+  useEffect(() => {
+    if (selectedMatch !== lastInsightsMatchIdx) {
+      setInsights(null);
+      setLastInsightsMatchIdx(selectedMatch);
+    }
+  }, [selectedMatch, lastInsightsMatchIdx]);
+
+  // Load insights when selected case changes and toggle is active
+  useEffect(() => {
+    if (selected && originalFile && showInsights && !insights && !insightsLoading) {
+      setInsightsLoading(true);
+      import("@/lib/mockUploadApis").then((api) => {
+        api.compareInsights(originalFile, selected)
+          .then((res) => setInsights(res))
+          .catch((err) => console.error(err))
+          .finally(() => setInsightsLoading(false));
+      });
+    }
+  }, [selected, originalFile, showInsights, insights, insightsLoading]);
+
+  // Handle toggle click
+  const handleToggleInsights = () => {
+    if (!showInsights) {
+      setShowInsights(true);
+    } else {
+      setShowInsights(false);
+    }
+  };
+
+  // Helper to render bounding boxes over an image
+  const renderBoxOverlay = (box: [number, number, number, number]) => {
+    // box is [ymin, xmin, ymax, xmax] max=1000
+    const [ymin, xmin, ymax, xmax] = box;
+    const top = `${(ymin / 1000) * 100}%`;
+    const left = `${(xmin / 1000) * 100}%`;
+    const height = `${((ymax - ymin) / 1000) * 100}%`;
+    const width = `${((xmax - xmin) / 1000) * 100}%`;
+
+    return (
+      <div
+        className="absolute border-2 border-[var(--mr-action)] bg-[var(--mr-action)]/20 animate-in fade-in duration-500 rounded-sm"
+        style={{ top, left, width, height }}
+      >
+        <div className="absolute -top-3 -right-3 h-6 w-6 bg-white rounded-full flex items-center justify-center shadow-sm border border-[var(--mr-action)] text-[var(--mr-action)]">
+          <Scan className="h-3 w-3" />
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[680px_416px]">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-[28px] font-semibold leading-[34px] tracking-[-0.01em] text-[var(--mr-text)]">
-            Closest Case Twins
+    <div className={cn(
+      "flex h-[calc(100vh-140px)] gap-6",
+      selected === null ? "flex-col" : "flex-row"
+    )}>
+      {/* Left List Container */}
+      <div className={cn(
+        "flex flex-col gap-5 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]",
+        selected === null ? "w-full max-w-[800px] mx-auto opacity-100" : "w-[300px] xl:w-[350px] shrink-0 opacity-100"
+      )}>
+        <div className="flex items-center justify-between shrink-0">
+          <h1 className={cn("font-semibold text-zinc-900 tracking-tight transition-all", selected === null ? "text-[28px]" : "text-[20px]")}>
+            {selected === null ? "Closest Case Twins" : "Top Matches"}
           </h1>
-          <div className="flex items-center gap-2">
-            <select className="mr-select h-9 w-40 text-[14px] leading-5">
-              <option>Best outcome</option>
-            </select>
-            <span className="mr-badge mr-badge--neutral">Top {items.length || 5}</span>
-          </div>
+          {selected === null && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-500">
+              <select className="mr-select h-9 w-40 text-[14px] leading-5 bg-white">
+                <option>Best visual match</option>
+                <option>Best outcome</option>
+              </select>
+              <span className="mr-badge mr-badge--neutral">Top {items.length || 5}</span>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--mr-text-secondary)]">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Generating MedSiglip embedding and searching cases...</p>
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-[var(--mr-text-secondary)] bg-zinc-50/50 rounded-2xl border border-dashed border-zinc-200">
+            <Loader2 className="h-8 w-8 animate-spin text-[var(--mr-action)]" />
+            <p className="text-[15px] font-medium text-zinc-600">Generating MedSiglip embedding and searching cases...</p>
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-[var(--mr-text-secondary)]">
-            <p className="text-sm">No matches found. Upload a chest X-ray image to search.</p>
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-[var(--mr-text-secondary)] bg-zinc-50/50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-[15px] font-medium text-zinc-600">No matches found. Upload a chest X-ray image to search.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className={cn(
+            "overflow-y-auto pb-8 pr-2 -mr-2",
+            selected === null ? "flex flex-col gap-4" : "flex flex-col gap-3"
+          )}>
             {items.map((item, idx) => (
               <MatchCard
                 key={`${item.diagnosis}-${item.score}-${idx}`}
                 item={item}
                 selected={idx === selectedMatch}
-                onSelect={() => onSelectMatch(idx)}
+                onSelect={() => onSelectMatch(idx === selectedMatch && selected !== null ? null : idx)}
+                condensed={selected !== null}
               />
             ))}
           </div>
         )}
       </div>
 
-      <div className="space-y-4">
-        <SurfaceCard>
-          <h2 className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">Why this match</h2>
-          {selected ? (
-            <>
-              <ul className="space-y-2 text-[15px] leading-[22px] text-[var(--mr-text)]">
-                <li>Visual similarity score: <strong>{selected.score}%</strong></li>
-                {selected.age != null && <li>Patient: {selected.age}y {selected.gender ?? ""}</li>}
-                {selected.radiology_view && <li>View: {selected.radiology_view}</li>}
-              </ul>
+      {/* Right Detail Container (Big Canvas) */}
+      {selected !== null && (
+        <div className="flex-1 rounded-2xl border border-zinc-200/80 bg-white shadow-sm flex flex-col overflow-hidden animate-in fade-in zoom-in-95 slide-in-from-right-8 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]">
+          {/* Canvas Header */}
+          <div className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50 px-6 py-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onSelectMatch(null)}
+                className="flex items-center justify-center h-8 w-8 rounded-full hover:bg-zinc-200/80 transition-colors text-zinc-500 hover:text-zinc-900"
+                aria-label="Close comparison"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <h2 className="text-[17px] font-semibold text-zinc-900">In-depth Comparison</h2>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* MedGemma Toggle */}
+              <button
+                onClick={handleToggleInsights}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-[13px] font-medium transition-all group border",
+                  showInsights
+                    ? "bg-[var(--mr-action)] text-white border-[var(--mr-action)] shadow-inner"
+                    : "bg-white text-zinc-600 border-zinc-200 hover:border-[var(--mr-action)]/30 hover:bg-[var(--mr-action)]/5"
+                )}
+              >
+                <Microscope className={cn("h-4 w-4", showInsights ? "text-white" : "text-[var(--mr-action)]")} />
+                {showInsights ? "AI Analysis Active" : "Run AI Analysis"}
+              </button>
 
-              {selected.image_url && (
-                <img
-                  src={selected.image_url}
-                  alt="Matched X-ray"
-                  className="mt-2 w-full rounded-md object-cover border border-zinc-200"
-                  style={{ maxHeight: 200 }}
-                />
+              <div className="w-px h-5 bg-zinc-200 mx-1" />
+
+              <MedButton variant="secondary" size="sm" onClick={() => onSelectMatch(null)}>
+                Back to list
+              </MedButton>
+              <MedButton variant="primary" size="sm" onClick={onContinueToRoute}>
+                Continue to routing
+              </MedButton>
+            </div>
+          </div>
+
+          {/* Canvas Content */}
+          <div className="flex-1 overflow-y-auto bg-zinc-50/30 p-6 md:p-8">
+            <div className="max-w-[1000px] mx-auto space-y-8 pb-10">
+
+              {/* Dual Image Comparison Banner */}
+              <div className="grid grid-flow-row md:grid-cols-2 gap-8 items-stretch pt-2">
+                {/* Left: Original */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-zinc-900 flex items-center gap-2">
+                      Your Upload
+                      <span className="bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded text-[11px] uppercase tracking-wide">Current</span>
+                    </h3>
+                  </div>
+                  <div className="aspect-[4/3] rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 relative shadow-inner">
+                    {originalPreviewUrl ? (
+                      <>
+                        <img
+                          src={originalPreviewUrl}
+                          alt="Your X-ray"
+                          className="w-full h-full object-contain bg-black/5"
+                        />
+                        {showInsights && !insightsLoading && insights && renderBoxOverlay(insights.original_box)}
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <FileText className="h-10 w-10 text-zinc-300 mb-2" />
+                        <p className="text-[13px] text-zinc-500">No original image</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: Matched Case */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-zinc-900 flex items-center gap-2">
+                      Historical Case Twin
+                      <OutcomeBadge variant={selected.outcomeVariant} label={`${selected.score}% Match`} />
+                    </h3>
+                  </div>
+                  <div className="aspect-[4/3] rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 relative shadow-inner">
+                    {selected.image_url ? (
+                      <>
+                        <img
+                          src={selected.image_url}
+                          alt="Matched X-ray"
+                          className="w-full h-full object-contain bg-black/5"
+                        />
+                        {showInsights && !insightsLoading && insights && renderBoxOverlay(insights.match_box)}
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <FileText className="h-10 w-10 text-zinc-300 mb-2" />
+                        <p className="text-[13px] text-zinc-500">No image available</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Insights Explanation Panel */}
+              {showInsights && (
+                <div className="bg-[var(--mr-action)]/5 rounded-2xl border border-[var(--mr-action)]/20 p-5 mt-4 animate-in fade-in slide-in-from-top-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white border border-[var(--mr-action)]/30 text-[var(--mr-action)] shadow-sm">
+                      {insightsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Microscope className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 mt-0.5 space-y-1">
+                      <h4 className="text-[15px] font-semibold text-zinc-900">MedGemma Concordance Analysis</h4>
+                      <p className="text-[14px] leading-relaxed text-zinc-700">
+                        {insightsLoading
+                          ? "Analyzing dual modalities to highlight structural similarities..."
+                          : insights?.similarity_text || selected.summary}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
 
-              <div className="mr-divider" />
+              <div className="w-full h-px bg-zinc-200/60" />
 
-              <div className="space-y-1">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">Case summary</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">
-                  {selected.case_text ? selected.case_text.slice(0, 200) + "..." : selected.summary}
-                </p>
+              {/* Structural Data Comparison */}
+              <div>
+                <h3 className="text-[18px] font-semibold text-zinc-900 mb-5">Clinical Comparison Matrix</h3>
+
+                <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
+                  <table className="w-full text-left border-collapse text-[14px]">
+                    <thead>
+                      <tr className="bg-zinc-50 border-b border-zinc-200/80">
+                        <th className="py-3 px-4 font-semibold text-zinc-500 uppercase tracking-wider text-xs w-1/4">Clinical Feature</th>
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8">Your Uploaded Case</th>
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8 flex items-center gap-2">
+                          Historical Twin <Check className="h-4 w-4 text-[var(--mr-success)]" />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+
+                      {/* Row 1: Demographics */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Demographics</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          {originalProfile?.patient.age_years ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-semibold mr-2 border border-blue-100">
+                              {originalProfile.patient.age_years}y
+                            </span>
+                          ) : "— "}
+                          {originalProfile?.patient.sex ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-semibold border border-purple-100">
+                              {originalProfile.patient.sex}
+                            </span>
+                          ) : ""}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          {selected.age ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-semibold mr-2 border border-blue-100">
+                              {selected.age}y
+                            </span>
+                          ) : "— "}
+                          {selected.gender ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-semibold border border-purple-100">
+                              {selected.gender}
+                            </span>
+                          ) : ""}
+                        </td>
+                      </tr>
+
+                      {/* Row 2: Primary Diagnosis/Assessment */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Primary Indication</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-900">
+                          {originalProfile?.assessment.diagnosis_primary || "Pending determination"}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-[var(--mr-action)] font-medium">
+                          {selected.diagnosis}
+                        </td>
+                      </tr>
+
+                      {/* Row 3: Key Findings */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Imaging Findings</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
+                          {originalProfile?.findings.lungs.consolidation_present === "yes" && "• Consolidation "}
+                          {originalProfile?.findings.lungs.edema_present === "yes" && "• Edema "}
+                          {originalProfile?.findings.pleura.effusion_present === "yes" && "• Pleural Effusion "}
+                          {(!originalProfile?.findings.lungs.consolidation_present && !originalProfile?.findings.lungs.edema_present && !originalProfile?.findings.pleura.effusion_present) && "—"}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
+                          {selected.summary.toLowerCase().includes("consolidation") && "• Consolidation "}
+                          {selected.summary.toLowerCase().includes("edema") && "• Edema "}
+                          {selected.summary.toLowerCase().includes("effusion") && "• Pleural Effusion "}
+                          {(!selected.summary.toLowerCase().includes("consolidation") && !selected.summary.toLowerCase().includes("edema") && !selected.summary.toLowerCase().includes("effusion")) && "See literature pattern"}
+                        </td>
+                      </tr>
+
+                      {/* Row 4: Evidence Base */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Evidence Base</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-400 text-sm">
+                          Active clinical case
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          <div className="flex flex-col gap-1 text-sm">
+                            <span className="font-medium text-zinc-900">{selected.facility}</span>
+                            <a href={`https://www.ncbi.nlm.nih.gov/pmc/articles/${selected.pmc_id}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                              {selected.pmc_id}
+                            </a>
+                            {selected.journal && <span className="text-zinc-500">{selected.journal} ({selected.year})</span>}
+                          </div>
+                        </td>
+                      </tr>
+
+                    </tbody>
+                  </table>
+                </div>
+
               </div>
-            </>
-          ) : (
-            <p className="text-[15px] leading-[22px] text-[var(--mr-text-secondary)]">
-              Select a match to see details.
-            </p>
-          )}
 
-          <MedButton variant="primary" fullWidth onClick={onContinueToRoute} disabled={items.length === 0}>
-            Continue to routing
-          </MedButton>
-        </SurfaceCard>
-      </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -714,7 +1016,7 @@ function MemoScreen() {
 
 export function DashboardPage() {
   const [step, setStep] = useState<Step>(0);
-  const [selectedMatch, setSelectedMatch] = useState(0);
+  const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
   const [deIdentify, setDeIdentify] = useState(true);
   const [saveToHistory, setSaveToHistory] = useState(true);
   const [maxTravelTime, setMaxTravelTime] = useState(3);
@@ -810,8 +1112,16 @@ export function DashboardPage() {
         {step === 1 ? (
           <>
             {searchError && (
-              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                ⚠️ {searchError} — Make sure the backend is running at localhost:8000.
+              <div className="mb-6 rounded-2xl border border-red-200/80 bg-red-50/50 p-4 shadow-sm backdrop-blur-md max-w-2xl mx-auto">
+                <div className="flex gap-3.5 items-start">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100/80 text-red-600 shadow-sm border border-red-200">
+                    <CloudOff className="h-4 w-4" strokeWidth={2.5} />
+                  </div>
+                  <div className="flex-1 mt-0.5">
+                    <h3 className="text-[14px] font-semibold text-red-900 tracking-tight">Search Unavailable</h3>
+                    <p className="mt-1 text-[13px] text-red-700 leading-relaxed font-medium">{searchError}</p>
+                  </div>
+                </div>
               </div>
             )}
             <MatchesScreen
@@ -820,6 +1130,8 @@ export function DashboardPage() {
               onContinueToRoute={() => setStep(2)}
               items={matchResults}
               isLoading={isSearching}
+              originalFile={uploadedFile}
+              originalProfile={useDashboardStore.getState().profile}
             />
           </>
         ) : null}

@@ -34,12 +34,57 @@ export async function searchByImage(file: File, profile?: CaseProfile, limit = 5
   });
 
   if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Search failed (${response.status}): ${err}`);
+    let errMessage = `Search failed (${response.status})`;
+    try {
+      const data = await response.json();
+      if (data.detail) {
+        errMessage = data.detail;
+      } else if (data.error) {
+        errMessage = data.error;
+      } else {
+        errMessage = JSON.stringify(data);
+      }
+    } catch (e) {
+      errMessage = await response.text() || errMessage;
+    }
+    throw new Error(errMessage);
   }
 
   const data = await response.json() as { matches: MatchItem[]; count: number };
   return data.matches;
+}
+
+export interface ComparisonInsights {
+  similarity_text: string;
+  original_box: [number, number, number, number]; // [ymin, xmin, ymax, xmax] max=1000
+  match_box: [number, number, number, number];
+}
+
+export async function compareInsights(originalImage: File, matchItem: MatchItem): Promise<ComparisonInsights> {
+  const formData = new FormData();
+  formData.append("original_image", originalImage);
+  formData.append("match_diagnosis", matchItem.diagnosis);
+  if (matchItem.image_url) {
+    formData.append("match_image_url", matchItem.image_url);
+  }
+
+  const response = await fetch(`${API_BASE}/compare_insights`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let errMessage = `Comparison failed (${response.status})`;
+    try {
+      const data = await response.json();
+      errMessage = data.detail || data.error || JSON.stringify(data);
+    } catch {
+      errMessage = await response.text() || errMessage;
+    }
+    throw new Error(errMessage);
+  }
+
+  return response.json() as Promise<ComparisonInsights>;
 }
 
 export interface CaseCardDraft {
