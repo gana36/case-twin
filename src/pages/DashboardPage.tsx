@@ -1,14 +1,15 @@
-import { useCallback, useRef, useState, useMemo, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { Check, FileText, Loader2, MapPin, Settings, Sparkles } from "lucide-react";
+import { useCallback, useRef, useState, useMemo, useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useDashboardStore } from "@/store/dashboardStore";
+import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope } from "lucide-react";
 import { searchByImage, type MatchItem as ApiMatchItem } from "@/lib/mockUploadApis";
 import { computeProfileConfidence } from "@/lib/caseProfileUtils";
-import { type CaseProfile } from "@/lib/caseProfileTypes";
+import { emptyProfile, type CaseProfile } from "@/lib/caseProfileTypes";
 import { CaseProfileView } from "@/components/CaseProfileView";
 import { AgenticCopilotPanel } from "@/components/AgenticCopilotPanel";
 import { cn } from "@/lib/utils";
+import { X, ChevronLeft } from "lucide-react";
 
-
-type Step = 0 | 1 | 2 | 3 | 4;
+type Step = 0 | 1 | 2 | 3;
 type OutcomeVariant = "success" | "warning" | "neutral";
 
 interface MatchItem {
@@ -17,14 +18,16 @@ interface MatchItem {
   summary: string;
   facility: string;
   outcome: string;
-  outcomeVariant: OutcomeVariant;
-  image_url?: string;
+  outcomeVariant: "success" | "warning" | "neutral";
+  image_url: string; // <-- Remove optional since mockUploadApis promises a string
   age?: number;
   gender?: string;
   pmc_id?: string;
   article_title?: string;
-  case_text?: string;
+  journal?: string;
+  year?: string;
   radiology_view?: string;
+  case_text?: string;
 }
 
 interface RouteCenter {
@@ -34,57 +37,53 @@ interface RouteCenter {
   reason: string;
 }
 
-const stepLabels = ["Upload", "Review", "Matches", "Route", "Memo"] as const;
-
-const reviewFields = [
-  { label: "Age", value: "52" },
-  { label: "Sex", value: "Not specified" },
-  { label: "Primary concern", value: "Hemoptysis, weight loss" },
-  { label: "Suspected condition", value: "Possible lung malignancy" },
-  { label: "Modality", value: "CT Chest" },
-  { label: "Key findings", value: "Right hilar mass, mediastinal LAD" }
-];
+const stepLabels = ["Upload", "Matches", "Route", "Memo"] as const;
 
 const matchItems: MatchItem[] = [
   {
-    score: 94,
-    diagnosis: "Small cell lung carcinoma",
-    summary: "Imaging pattern matches right hilar mass",
-    facility: "Mayo Clinic — Rochester",
-    outcome: "Complete response",
-    outcomeVariant: "success"
+    score: 98,
+    diagnosis: "Bilateral ground-glass opacities",
+    summary: "High concordance with presentation of acute hypoxemic respiratory failure.",
+    facility: "Mayo Clinic",
+    outcome: "Discharged at 14 days",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 91,
-    diagnosis: "NSCLC (adenocarcinoma)",
-    summary: "Pattern overlap with central chest lesion",
+    score: 82,
+    diagnosis: "Acute respiratory distress syndrome",
+    summary: "Matches pattern of diffuse bilateral alveolar damage.",
     facility: "Cleveland Clinic",
-    outcome: "Partial response",
-    outcomeVariant: "warning"
+    outcome: "Recovered via ECMO",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 89,
-    diagnosis: "Pulmonary carcinoid tumor",
-    summary: "Strong imaging and symptom similarity",
+    score: 85,
+    diagnosis: "Atypical pneumonia",
+    summary: "Similar peripheral distribution but less extensive consolidation.",
     facility: "Mass General",
-    outcome: "Good recovery",
-    outcomeVariant: "success"
+    outcome: "Required ICU transfer",
+    outcomeVariant: "warning",
+    image_url: ""
   },
   {
-    score: 86,
-    diagnosis: "Lymphoma (mediastinal)",
-    summary: "Clinical features partially align",
+    score: 74,
+    diagnosis: "Pulmonary alveolar proteinosis",
+    summary: "Some morphological overlap in 'crazy-paving' pattern.",
     facility: "Johns Hopkins",
-    outcome: "Remission",
-    outcomeVariant: "success"
+    outcome: "Improved post-lavage",
+    outcomeVariant: "success",
+    image_url: ""
   },
   {
-    score: 84,
-    diagnosis: "Granulomatous disease",
-    summary: "Differential match with lower confidence",
-    facility: "UCSF",
-    outcome: "Resolved",
-    outcomeVariant: "neutral"
+    score: 61,
+    diagnosis: "Pulmonary edema",
+    summary: "Lower confidence match due to presence of cardiomegaly.",
+    facility: "UCSF Medical Center",
+    outcome: "Ongoing diuretic therapy",
+    outcomeVariant: "neutral",
+    image_url: ""
   }
 ];
 
@@ -190,7 +189,7 @@ function OutcomeBadge({ variant, label }: { variant: OutcomeVariant; label: stri
   return (
     <span
       className={cn(
-        "mr-badge",
+        "mr-badge border border-zinc-200",
         variant === "success" && "mr-badge--success",
         variant === "warning" && "mr-badge--warning",
         variant === "neutral" && "mr-badge--neutral"
@@ -243,13 +242,14 @@ function UploadScreen({
   onImageFilePicked: (file: File | null) => void;
   onStepChange: (step: Step) => void;
 }) {
-  const [profile, setProfile] = useState<CaseProfile | null>(null);
+  const profile = useDashboardStore(s => s.profile);
+  const setProfile = useDashboardStore(s => s.setProfile);
 
   const conf = profile ? computeProfileConfidence(profile) : { score: 0, filled: 0, total: 13, missing: [] };
 
   const handleProfileUpdate = useCallback((updated: CaseProfile) => {
     setProfile(updated);
-  }, []);
+  }, [setProfile]);
 
   const handleFileForSearch = useCallback((file: File) => {
     onImageFilePicked(file);
@@ -289,101 +289,75 @@ function UploadScreen({
   return (
     <div
       ref={containerRef}
-      className="flex h-full min-h-[calc(100vh-120px)] gap-0"
+      className="flex h-[calc(100vh-100px)] gap-0 pt-6"
       style={{ overflow: "hidden" }}
     >
       {/* ── Left: Live Case Profile ── */}
       <div
-        className="flex flex-col gap-4 overflow-y-auto pr-3"
+        className="flex flex-col gap-4 overflow-hidden h-full pr-3 pb-6 relative"
         style={{ width: `${leftPct}%`, minWidth: 0 }}
       >
-        {/* Uploaded image preview */}
-        {profile?.study.image_url && (
-          <SurfaceCard>
-            <p className="mr-label mb-2">Uploaded Imaging</p>
-            <div className="overflow-hidden rounded-xl border border-[var(--mr-border)] bg-[var(--mr-bg-subtle)]">
-              <img
-                src={profile.study.image_url}
-                alt="Uploaded imaging study"
-                className="w-full object-contain"
-                style={{ maxHeight: "220px" }}
-              />
-            </div>
-            {profile.study.modality && (
-              <p className="mt-2 text-xs text-[var(--mr-text-secondary)]">
-                {profile.study.modality}{profile.study.body_region ? ` · ${profile.study.body_region}` : ""}
-              </p>
-            )}
-          </SurfaceCard>
-        )}
-
-        {/* Confidence summary card */}
-        <SurfaceCard label="Case card" title="Case Profile">
-          <div className="flex items-center gap-5 pb-2">
-            {/* Ring */}
-            <div className="relative h-20 w-20 shrink-0">
-              <svg className="h-20 w-20 -rotate-90" viewBox="0 0 80 80">
-                <circle cx="40" cy="40" r="34" fill="none" stroke="var(--mr-border)" strokeWidth="6" />
-                <circle
-                  cx="40" cy="40" r="34" fill="none"
-                  stroke={
-                    conf.score >= 80 ? "var(--mr-success)"
-                      : conf.score >= 50 ? "var(--mr-warning)"
-                        : "var(--mr-action)"
-                  }
-                  strokeWidth="6"
-                  strokeDasharray={`${(conf.score / 100) * 213.6} 213.6`}
-                  strokeLinecap="round"
-                  className="transition-all duration-700"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-bold leading-none text-[var(--mr-text)]">{conf.score}%</span>
-                <span className="text-[10px] font-medium text-[var(--mr-text-secondary)]">confidence</span>
+        <div className="rounded-2xl border border-zinc-200/80 bg-white shadow-sm overflow-hidden flex flex-col flex-1 h-full min-h-0">
+          {/* Header Section (Always Visible) */}
+          <div className="px-8 pt-8 pb-5 border-b border-zinc-100 bg-zinc-50/50 flex items-start justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white shadow-sm">
+                <FileText className="h-5 w-5 text-zinc-700" />
+              </div>
+              <div>
+                <h2 className="text-[22px] font-semibold tracking-tight text-zinc-900 leading-none">Case Profile</h2>
+                <p className="mt-1.5 flex items-center gap-1.5 text-[13px] font-medium text-zinc-500">
+                  <Stethoscope className="h-3.5 w-3.5 text-[var(--mr-action)]" /> MedGemma Extracted
+                </p>
               </div>
             </div>
-            {/* Stats */}
-            <div>
-              <p className="text-sm font-semibold text-[var(--mr-text)]">
-                {conf.score >= 80 ? "High completeness" : conf.score >= 50 ? "Moderate completeness" : "Low completeness"}
-              </p>
-              <p className="mt-0.5 text-xs text-[var(--mr-text-secondary)]">
-                {conf.filled} of {conf.total} fields captured
-              </p>
-              {conf.missing.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {conf.missing.slice(0, 4).map(m => (
-                    <span key={m} className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-                      {m}
-                    </span>
-                  ))}
-                  {conf.missing.length > 4 && (
-                    <span className="rounded-full bg-[var(--mr-bg-subtle)] px-2 py-0.5 text-[10px] text-[var(--mr-text-secondary)]">
-                      +{conf.missing.length - 4} more
-                    </span>
-                  )}
-                </div>
-              )}
+
+            {/* Inline Extraction Quality */}
+            <div className="flex flex-col items-end">
+              <span className={cn(
+                "text-[12px] font-semibold px-2 py-0.5 rounded-md border",
+                conf.score >= 80 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : conf.score >= 50 ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-zinc-100 text-zinc-700 border-zinc-200"
+              )}>
+                {conf.score}% Complete
+              </span>
             </div>
           </div>
-        </SurfaceCard>
 
-        {/* Live profile fields */}
-        {profile ? (
-          <CaseProfileView profile={profile} />
-        ) : (
-          <SurfaceCard>
-            <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--mr-bg-subtle)]">
-                <Sparkles className="h-7 w-7 text-[var(--mr-text-secondary)]" />
+          {/* Content Section */}
+          <div className="flex-1 overflow-y-auto w-full relative">
+            {profile && conf.score > 0 ? (
+              <div className="p-8 pb-32 transition-all">
+                <CaseProfileView profile={profile} />
               </div>
-              <p className="text-sm font-medium text-[var(--mr-text-secondary)]">No profile yet</p>
-              <p className="max-w-[220px] text-xs leading-5 text-[var(--mr-text-secondary)]">
-                Talk to the Copilot — share evidence and watch the case profile appear here.
-              </p>
-            </div>
-          </SurfaceCard>
-        )}
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-8 bg-zinc-50/20 group">
+                <div className="absolute inset-0 bg-gradient-to-tr from-white via-transparent to-zinc-50/30 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
+
+                <div className="flex flex-col items-center justify-center gap-5 text-center max-w-[320px] relative z-10 transition-transform duration-500 group-hover:-translate-y-1">
+                  <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-white shadow-sm border border-zinc-200/60 ring-4 ring-white">
+                    <div className="absolute inset-0 rounded-2xl bg-zinc-100/50 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                    <HeartPulse className="h-8 w-8 text-zinc-400 group-hover:text-rose-500 transition-colors duration-500" strokeWidth={1.5} />
+                    <div className="absolute -bottom-1.5 -right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-white shadow-sm border border-zinc-200/60">
+                      <FileText className="h-3.5 w-3.5 text-zinc-400" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <h3 className="text-[17px] font-semibold text-zinc-900 tracking-tight">Case Profile Empty</h3>
+                    <p className="text-[14px] leading-relaxed text-zinc-500">
+                      Talk to the Copilot on the right. Share patient evidence, labs, and imaging to watch the intelligent case profile automatically appear here.
+                    </p>
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-zinc-200/60 shadow-sm text-[13px] font-medium text-zinc-500 transition-all duration-300 group-hover:shadow-md group-hover:border-zinc-300/60">
+                    <Loader2 className="w-3.5 h-3.5 animate-[spin_3s_linear_infinite] text-zinc-400" />
+                    Waiting for evidence...
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Drag Divider ── */}
@@ -415,161 +389,64 @@ function UploadScreen({
 }
 
 
-function ReviewScreen({
-  tab,
-  onTabChange
-}: {
-  tab: "readable" | "json";
-  onTabChange: (next: "readable" | "json") => void;
-}) {
-  const fhirJson = useMemo(
-    () =>
-      JSON.stringify(
-        {
-          conditions: ["Possible lung neoplasm"],
-          observations: ["Hemoptysis"],
-          imaging: ["CT", "Chest"]
-        },
-        null,
-        2
-      ),
-    []
-  );
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[680px_416px]">
-      <div className="space-y-4">
-        <SurfaceCard>
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">Extracted details</h2>
-            <MedButton variant="tertiary">Edit</MedButton>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            {reviewFields.map((entry) => (
-              <div key={entry.label} className="space-y-0.5">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">{entry.label}</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">{entry.value}</p>
-              </div>
-            ))}
-          </div>
-        </SurfaceCard>
-
-        <SurfaceCard>
-          <div className="flex items-center border-b border-[var(--mr-border)]">
-            <button
-              type="button"
-              className={cn(
-                "h-10 border-b-2 px-3 text-[15px] leading-[22px]",
-                tab === "readable"
-                  ? "border-[var(--mr-text)] text-[var(--mr-text)]"
-                  : "border-transparent text-[var(--mr-text-secondary)]"
-              )}
-              onClick={() => onTabChange("readable")}
-            >
-              Readable
-            </button>
-            <button
-              type="button"
-              className={cn(
-                "h-10 border-b-2 px-3 text-[15px] leading-[22px]",
-                tab === "json"
-                  ? "border-[var(--mr-text)] text-[var(--mr-text)]"
-                  : "border-transparent text-[var(--mr-text-secondary)]"
-              )}
-              onClick={() => onTabChange("json")}
-            >
-              FHIR JSON
-            </button>
-          </div>
-
-          {tab === "readable" ? (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">Conditions</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">Possible lung neoplasm</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">Observations</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">Hemoptysis</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">Imaging</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">CT, Chest</p>
-              </div>
-            </div>
-          ) : (
-            <pre className="max-h-[220px] overflow-auto rounded-xl bg-[var(--mr-bg-subtle)] p-3 text-xs leading-4 text-[var(--mr-text)]">
-              {fhirJson}
-            </pre>
-          )}
-        </SurfaceCard>
-      </div>
-
-      <div className="space-y-4">
-        <SurfaceCard>
-          <h2 className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">Extraction quality</h2>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[15px] leading-[22px]">
-              <span className="text-[var(--mr-text)]">Completeness</span>
-              <span className="font-semibold text-[var(--mr-text)]">92%</span>
-            </div>
-            <div className="h-1 rounded bg-[#DCFCE7]">
-              <div className="h-full w-[92%] rounded bg-[var(--mr-success)]" />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between text-[15px] leading-[22px]">
-            <span className="text-[var(--mr-text)]">Ambiguities</span>
-            <span className="font-semibold text-[var(--mr-text)]">2</span>
-          </div>
-
-          <div className="flex items-center gap-2 rounded-xl bg-[#FFFBEB] p-3">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#FDE68A] text-xs text-[var(--mr-warning)]">
-              !
-            </span>
-            <p className="text-xs leading-4 text-[var(--mr-warning)]">Smoking history not found.</p>
-          </div>
-        </SurfaceCard>
-      </div>
-    </div>
-  );
-}
 
 function MatchCard({
   item,
   selected,
-  onSelect
+  onSelect,
+  condensed
 }: {
   item: MatchItem;
   selected: boolean;
   onSelect: () => void;
+  condensed?: boolean;
 }) {
-  const ringClass = item.score >= 90 ? "border-[var(--mr-action)]" : "border-[var(--mr-border)]";
+  const ringClass = item.score >= 90 ? "border-[var(--mr-action)] text-[var(--mr-action)]" : "border-[var(--mr-border)] text-[var(--mr-text)]";
+
+  if (condensed) {
+    return (
+      <article
+        className={cn(
+          "mr-surface flex flex-col gap-3 p-4 transition-all hover:bg-zinc-50 cursor-pointer overflow-hidden group",
+          selected ? "border-l-[4px] border-l-[var(--mr-action)] bg-blue-50/20" : "border-l-[4px] border-l-transparent"
+        )}
+        onClick={onSelect}
+      >
+        <div className="flex items-start justify-between">
+          <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[3px] bg-white", ringClass)}>
+            <span className="text-sm font-semibold">{item.score}%</span>
+          </div>
+          <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
+        </div>
+        <div className="space-y-1">
+          <h3 className="font-semibold text-zinc-900 text-[14px] leading-tight line-clamp-2 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</h3>
+          <p className="text-xs text-zinc-500 line-clamp-2">{item.summary}</p>
+        </div>
+        <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mt-1">{item.facility}</div>
+      </article>
+    );
+  }
 
   return (
     <article
       className={cn(
-        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center",
-        selected && "border-l-[3px] border-l-[var(--mr-action)]"
+        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center hover:shadow-md transition-all cursor-pointer group",
+        selected && "border-l-[3px] border-l-[var(--mr-action)] bg-blue-50/10"
       )}
+      onClick={onSelect}
     >
-      <div className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-[3px]", ringClass)}>
-        <span className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">{item.score}%</span>
+      <div className={cn("flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-[3px] bg-white transition-colors group-hover:border-[var(--mr-action)] group-hover:text-[var(--mr-action)]", ringClass)}>
+        <span className="text-[17px] font-semibold leading-[22px]">{item.score}%</span>
       </div>
 
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="truncate text-[15px] font-semibold leading-[22px] text-[var(--mr-text)]">{item.diagnosis}</p>
-        <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">{item.summary}</p>
+      <div className="min-w-0 flex-1 space-y-1 pr-4">
+        <p className="truncate text-[16px] font-semibold leading-[22px] text-zinc-900 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</p>
+        <p className="text-[14px] leading-relaxed text-zinc-500">{item.summary}</p>
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 lg:items-end">
-        <p className="text-xs leading-4 text-[var(--mr-text)]">{item.facility}</p>
+        <p className="text-[13px] font-medium text-zinc-500 tracking-wide uppercase">{item.facility}</p>
         <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
-        <MedButton variant="secondary" size="sm" onClick={onSelect}>
-          Select
-        </MedButton>
       </div>
     </article>
   );
@@ -580,94 +457,365 @@ function MatchesScreen({
   onSelectMatch,
   onContinueToRoute,
   items,
-  isLoading
+  isLoading,
+  originalFile,
+  originalProfile,
 }: {
-  selectedMatch: number;
-  onSelectMatch: (index: number) => void;
+  selectedMatch: number | null;
+  onSelectMatch: (index: number | null) => void;
   onContinueToRoute: () => void;
   items: MatchItem[];
   isLoading: boolean;
+  originalFile: File | null;
+  originalProfile: CaseProfile | null;
 }) {
-  const selected = items[selectedMatch];
+  const selected = selectedMatch !== null ? items[selectedMatch] : null;
+
+  // Keep track of which match ID we've loaded insights for
+  const [lastInsightsMatchIdx, setLastInsightsMatchIdx] = useState<number | null>(null);
+
+  const originalPreviewUrl = useMemo(() => {
+    if (originalFile && originalFile.type.startsWith("image/")) {
+      return URL.createObjectURL(originalFile);
+    }
+    return null;
+  }, [originalFile]);
+
+  const [showInsights, setShowInsights] = useState(false);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insights, setInsights] = useState<{
+    similarity_text: string;
+    original_box: [number, number, number, number];
+    match_box: [number, number, number, number];
+  } | null>(null);
+
+  // Clear insights if the selected match has changed
+  useEffect(() => {
+    if (selectedMatch !== lastInsightsMatchIdx) {
+      setInsights(null);
+      setLastInsightsMatchIdx(selectedMatch);
+    }
+  }, [selectedMatch, lastInsightsMatchIdx]);
+
+  // Load insights when selected case changes and toggle is active
+  useEffect(() => {
+    if (selected && originalFile && showInsights && !insights && !insightsLoading) {
+      setInsightsLoading(true);
+      import("@/lib/mockUploadApis").then((api) => {
+        api.compareInsights(originalFile, selected)
+          .then((res) => setInsights(res))
+          .catch((err) => console.error(err))
+          .finally(() => setInsightsLoading(false));
+      });
+    }
+  }, [selected, originalFile, showInsights, insights, insightsLoading]);
+
+  // Handle toggle click
+  const handleToggleInsights = () => {
+    if (!showInsights) {
+      setShowInsights(true);
+    } else {
+      setShowInsights(false);
+    }
+  };
+
+  // Helper to render bounding boxes over an image
+  const renderBoxOverlay = (box: [number, number, number, number]) => {
+    // box is [ymin, xmin, ymax, xmax] max=1000
+    const [ymin, xmin, ymax, xmax] = box;
+    const top = `${(ymin / 1000) * 100}%`;
+    const left = `${(xmin / 1000) * 100}%`;
+    const height = `${((ymax - ymin) / 1000) * 100}%`;
+    const width = `${((xmax - xmin) / 1000) * 100}%`;
+
+    return (
+      <div
+        className="absolute border-2 border-[var(--mr-action)] bg-[var(--mr-action)]/20 animate-in fade-in duration-500 rounded-sm"
+        style={{ top, left, width, height }}
+      >
+        <div className="absolute -top-3 -right-3 h-6 w-6 bg-white rounded-full flex items-center justify-center shadow-sm border border-[var(--mr-action)] text-[var(--mr-action)]">
+          <Scan className="h-3 w-3" />
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[680px_416px]">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-[28px] font-semibold leading-[34px] tracking-[-0.01em] text-[var(--mr-text)]">
-            Closest Case Twins
+    <div className={cn(
+      "flex h-[calc(100vh-140px)] gap-6",
+      selected === null ? "flex-col" : "flex-row"
+    )}>
+      {/* Left List Container */}
+      <div className={cn(
+        "flex flex-col gap-5 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]",
+        selected === null ? "w-full max-w-[800px] mx-auto opacity-100" : "w-[300px] xl:w-[350px] shrink-0 opacity-100"
+      )}>
+        <div className="flex items-center justify-between shrink-0">
+          <h1 className={cn("font-semibold text-zinc-900 tracking-tight transition-all", selected === null ? "text-[28px]" : "text-[20px]")}>
+            {selected === null ? "Closest Case Twins" : "Top Matches"}
           </h1>
-          <div className="flex items-center gap-2">
-            <select className="mr-select h-9 w-40 text-[14px] leading-5">
-              <option>Best outcome</option>
-            </select>
-            <span className="mr-badge mr-badge--neutral">Top {items.length || 5}</span>
-          </div>
+          {selected === null && (
+            <div className="flex items-center gap-2 animate-in fade-in duration-500">
+              <select className="mr-select h-9 w-40 text-[14px] leading-5 bg-white">
+                <option>Best visual match</option>
+                <option>Best outcome</option>
+              </select>
+              <span className="mr-badge mr-badge--neutral">Top {items.length || 5}</span>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--mr-text-secondary)]">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <p className="text-sm">Generating MedSiglip embedding and searching cases...</p>
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-[var(--mr-text-secondary)] bg-zinc-50/50 rounded-2xl border border-dashed border-zinc-200">
+            <Loader2 className="h-8 w-8 animate-spin text-[var(--mr-action)]" />
+            <p className="text-[15px] font-medium text-zinc-600">Generating MedSiglip embedding and searching cases...</p>
           </div>
         ) : items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-[var(--mr-text-secondary)]">
-            <p className="text-sm">No matches found. Upload a chest X-ray image to search.</p>
+          <div className="flex flex-col items-center justify-center gap-4 py-24 text-[var(--mr-text-secondary)] bg-zinc-50/50 rounded-2xl border border-dashed border-zinc-200">
+            <p className="text-[15px] font-medium text-zinc-600">No matches found. Upload a chest X-ray image to search.</p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className={cn(
+            "overflow-y-auto pb-8 pr-2 -mr-2",
+            selected === null ? "flex flex-col gap-4" : "flex flex-col gap-3"
+          )}>
             {items.map((item, idx) => (
               <MatchCard
                 key={`${item.diagnosis}-${item.score}-${idx}`}
                 item={item}
                 selected={idx === selectedMatch}
-                onSelect={() => onSelectMatch(idx)}
+                onSelect={() => onSelectMatch(idx === selectedMatch && selected !== null ? null : idx)}
+                condensed={selected !== null}
               />
             ))}
           </div>
         )}
       </div>
 
-      <div className="space-y-4">
-        <SurfaceCard>
-          <h2 className="text-[17px] font-semibold leading-[22px] text-[var(--mr-text)]">Why this match</h2>
-          {selected ? (
-            <>
-              <ul className="space-y-2 text-[15px] leading-[22px] text-[var(--mr-text)]">
-                <li>Visual similarity score: <strong>{selected.score}%</strong></li>
-                {selected.age != null && <li>Patient: {selected.age}y {selected.gender ?? ""}</li>}
-                {selected.radiology_view && <li>View: {selected.radiology_view}</li>}
-              </ul>
+      {/* Right Detail Container (Big Canvas) */}
+      {selected !== null && (
+        <div className="flex-1 rounded-2xl border border-zinc-200/80 bg-white shadow-sm flex flex-col overflow-hidden animate-in fade-in zoom-in-95 slide-in-from-right-8 duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]">
+          {/* Canvas Header */}
+          <div className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50/50 px-6 py-4 shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => onSelectMatch(null)}
+                className="flex items-center justify-center h-8 w-8 rounded-full hover:bg-zinc-200/80 transition-colors text-zinc-500 hover:text-zinc-900"
+                aria-label="Close comparison"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <h2 className="text-[17px] font-semibold text-zinc-900">In-depth Comparison</h2>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* MedGemma Toggle */}
+              <button
+                onClick={handleToggleInsights}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-[13px] font-medium transition-all group border",
+                  showInsights
+                    ? "bg-[var(--mr-action)] text-white border-[var(--mr-action)] shadow-inner"
+                    : "bg-white text-zinc-600 border-zinc-200 hover:border-[var(--mr-action)]/30 hover:bg-[var(--mr-action)]/5"
+                )}
+              >
+                <Microscope className={cn("h-4 w-4", showInsights ? "text-white" : "text-[var(--mr-action)]")} />
+                {showInsights ? "AI Analysis Active" : "Run AI Analysis"}
+              </button>
 
-              {selected.image_url && (
-                <img
-                  src={selected.image_url}
-                  alt="Matched X-ray"
-                  className="mt-2 w-full rounded-xl object-cover"
-                  style={{ maxHeight: 200 }}
-                />
+              <div className="w-px h-5 bg-zinc-200 mx-1" />
+
+              <MedButton variant="secondary" size="sm" onClick={() => onSelectMatch(null)}>
+                Back to list
+              </MedButton>
+              <MedButton variant="primary" size="sm" onClick={onContinueToRoute}>
+                Continue to routing
+              </MedButton>
+            </div>
+          </div>
+
+          {/* Canvas Content */}
+          <div className="flex-1 overflow-y-auto bg-zinc-50/30 p-6 md:p-8">
+            <div className="max-w-[1000px] mx-auto space-y-8 pb-10">
+
+              {/* Dual Image Comparison Banner */}
+              <div className="grid grid-flow-row md:grid-cols-2 gap-8 items-stretch pt-2">
+                {/* Left: Original */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-zinc-900 flex items-center gap-2">
+                      Your Upload
+                      <span className="bg-zinc-100 text-zinc-500 px-2 py-0.5 rounded text-[11px] uppercase tracking-wide">Current</span>
+                    </h3>
+                  </div>
+                  <div className="aspect-[4/3] rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 relative shadow-inner">
+                    {originalPreviewUrl ? (
+                      <>
+                        <img
+                          src={originalPreviewUrl}
+                          alt="Your X-ray"
+                          className="w-full h-full object-contain bg-black/5"
+                        />
+                        {showInsights && !insightsLoading && insights && renderBoxOverlay(insights.original_box)}
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <FileText className="h-10 w-10 text-zinc-300 mb-2" />
+                        <p className="text-[13px] text-zinc-500">No original image</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: Matched Case */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-[15px] font-semibold text-zinc-900 flex items-center gap-2">
+                      Historical Case Twin
+                      <OutcomeBadge variant={selected.outcomeVariant} label={`${selected.score}% Match`} />
+                    </h3>
+                  </div>
+                  <div className="aspect-[4/3] rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 relative shadow-inner">
+                    {selected.image_url ? (
+                      <>
+                        <img
+                          src={selected.image_url}
+                          alt="Matched X-ray"
+                          className="w-full h-full object-contain bg-black/5"
+                        />
+                        {showInsights && !insightsLoading && insights && renderBoxOverlay(insights.match_box)}
+                      </>
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <FileText className="h-10 w-10 text-zinc-300 mb-2" />
+                        <p className="text-[13px] text-zinc-500">No image available</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* AI Insights Explanation Panel */}
+              {showInsights && (
+                <div className="bg-[var(--mr-action)]/5 rounded-2xl border border-[var(--mr-action)]/20 p-5 mt-4 animate-in fade-in slide-in-from-top-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white border border-[var(--mr-action)]/30 text-[var(--mr-action)] shadow-sm">
+                      {insightsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Microscope className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 mt-0.5 space-y-1">
+                      <h4 className="text-[15px] font-semibold text-zinc-900">MedGemma Concordance Analysis</h4>
+                      <p className="text-[14px] leading-relaxed text-zinc-700">
+                        {insightsLoading
+                          ? "Analyzing dual modalities to highlight structural similarities..."
+                          : insights?.similarity_text || selected.summary}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
 
-              <div className="mr-divider" />
+              <div className="w-full h-px bg-zinc-200/60" />
 
-              <div className="space-y-1">
-                <p className="text-xs leading-4 text-[var(--mr-text-secondary)]">Case summary</p>
-                <p className="text-[15px] leading-[22px] text-[var(--mr-text)]">
-                  {selected.case_text ? selected.case_text.slice(0, 200) + "..." : selected.summary}
-                </p>
+              {/* Structural Data Comparison */}
+              <div>
+                <h3 className="text-[18px] font-semibold text-zinc-900 mb-5">Clinical Comparison Matrix</h3>
+
+                <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
+                  <table className="w-full text-left border-collapse text-[14px]">
+                    <thead>
+                      <tr className="bg-zinc-50 border-b border-zinc-200/80">
+                        <th className="py-3 px-4 font-semibold text-zinc-500 uppercase tracking-wider text-xs w-1/4">Clinical Feature</th>
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8">Your Uploaded Case</th>
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8 flex items-center gap-2">
+                          Historical Twin <Check className="h-4 w-4 text-[var(--mr-success)]" />
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100">
+
+                      {/* Row 1: Demographics */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Demographics</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          {originalProfile?.patient.age_years ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-semibold mr-2 border border-blue-100">
+                              {originalProfile.patient.age_years}y
+                            </span>
+                          ) : "— "}
+                          {originalProfile?.patient.sex ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-semibold border border-purple-100">
+                              {originalProfile.patient.sex}
+                            </span>
+                          ) : ""}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          {selected.age ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-xs font-semibold mr-2 border border-blue-100">
+                              {selected.age}y
+                            </span>
+                          ) : "— "}
+                          {selected.gender ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-purple-50 text-purple-700 text-xs font-semibold border border-purple-100">
+                              {selected.gender}
+                            </span>
+                          ) : ""}
+                        </td>
+                      </tr>
+
+                      {/* Row 2: Primary Diagnosis/Assessment */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Primary Indication</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-900">
+                          {originalProfile?.assessment.diagnosis_primary || "Pending determination"}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-[var(--mr-action)] font-medium">
+                          {selected.diagnosis}
+                        </td>
+                      </tr>
+
+                      {/* Row 3: Key Findings */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Imaging Findings</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
+                          {originalProfile?.findings.lungs.consolidation_present === "yes" && "• Consolidation "}
+                          {originalProfile?.findings.lungs.edema_present === "yes" && "• Edema "}
+                          {originalProfile?.findings.pleura.effusion_present === "yes" && "• Pleural Effusion "}
+                          {(!originalProfile?.findings.lungs.consolidation_present && !originalProfile?.findings.lungs.edema_present && !originalProfile?.findings.pleura.effusion_present) && "—"}
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
+                          {selected.summary.toLowerCase().includes("consolidation") && "• Consolidation "}
+                          {selected.summary.toLowerCase().includes("edema") && "• Edema "}
+                          {selected.summary.toLowerCase().includes("effusion") && "• Pleural Effusion "}
+                          {(!selected.summary.toLowerCase().includes("consolidation") && !selected.summary.toLowerCase().includes("edema") && !selected.summary.toLowerCase().includes("effusion")) && "See literature pattern"}
+                        </td>
+                      </tr>
+
+                      {/* Row 4: Evidence Base */}
+                      <tr className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="py-3 px-4 text-zinc-600 font-medium">Evidence Base</td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-400 text-sm">
+                          Active clinical case
+                        </td>
+                        <td className="py-3 px-4 border-l border-zinc-200/80">
+                          <div className="flex flex-col gap-1 text-sm">
+                            <span className="font-medium text-zinc-900">{selected.facility}</span>
+                            <a href={`https://www.ncbi.nlm.nih.gov/pmc/articles/${selected.pmc_id}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                              {selected.pmc_id}
+                            </a>
+                            {selected.journal && <span className="text-zinc-500">{selected.journal} ({selected.year})</span>}
+                          </div>
+                        </td>
+                      </tr>
+
+                    </tbody>
+                  </table>
+                </div>
+
               </div>
-            </>
-          ) : (
-            <p className="text-[15px] leading-[22px] text-[var(--mr-text-secondary)]">
-              Select a match to see details.
-            </p>
-          )}
 
-          <MedButton variant="primary" fullWidth onClick={onContinueToRoute} disabled={items.length === 0}>
-            Continue to routing
-          </MedButton>
-        </SurfaceCard>
-      </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -706,8 +854,8 @@ function RouteScreen({
   return (
     <div className="grid gap-6 lg:grid-cols-[680px_416px]">
       <div className="space-y-4">
-        <SurfaceCard className="h-80">
-          <div className="relative h-full rounded-xl bg-[#F3F4F6]">
+        <SurfaceCard className="h-80 relative overflow-hidden p-0 border-zinc-200">
+          <div className="absolute inset-0 bg-[#F3F4F6]">
             <MapPin className="absolute left-[20%] top-[28%] h-5 w-5 text-[var(--mr-text)]" />
             <MapPin className="absolute left-[46%] top-[42%] h-5 w-5 text-[var(--mr-text)]" />
             <MapPin className="absolute left-[72%] top-[34%] h-5 w-5 text-[var(--mr-text)]" />
@@ -783,7 +931,7 @@ function MemoScreen() {
   return (
     <div className="grid gap-6 lg:grid-cols-[680px_416px]">
       <div className="space-y-4">
-        <SurfaceCard className="gap-4 p-8 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+        <SurfaceCard className="gap-4 p-8">
           <div className="space-y-1">
             <h1 className="text-[28px] font-semibold leading-[34px] tracking-[-0.01em] text-[var(--mr-text)]">
               Transfer Memo
@@ -868,8 +1016,7 @@ function MemoScreen() {
 
 export function DashboardPage() {
   const [step, setStep] = useState<Step>(0);
-  const [reviewTab, setReviewTab] = useState<"readable" | "json">("readable");
-  const [selectedMatch, setSelectedMatch] = useState(0);
+  const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
   const [deIdentify, setDeIdentify] = useState(true);
   const [saveToHistory, setSaveToHistory] = useState(true);
   const [maxTravelTime, setMaxTravelTime] = useState(3);
@@ -886,13 +1033,21 @@ export function DashboardPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const handleStepChange = async (next: Step) => {
-    // When advancing to the Matches step (2), trigger real search
-    if (next === 2 && uploadedFile && matchResults.length === 0) {
+    // When advancing to the Matches step (1), trigger real search
+    if (next === 1 && matchResults.length === 0) {
       setStep(next);
       setIsSearching(true);
       setSearchError(null);
       try {
-        const results = await searchByImage(uploadedFile);
+        let fileToSearch = uploadedFile;
+        if (!fileToSearch) {
+          // Fallback dummy 1x1 image so backend receives a valid file
+          const dummyImg = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84, 8, 153, 99, 248, 15, 4, 0, 9, 251, 3, 253, 153, 226, 18, 172, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130])], { type: 'image/png' });
+          fileToSearch = new File([dummyImg], "dummy.png", { type: "image/png" });
+        }
+
+        const profileData = useDashboardStore.getState().profile;
+        const results = await searchByImage(fileToSearch, profileData || undefined);
         setMatchResults(results);
       } catch (err) {
         setSearchError(err instanceof Error ? err.message : "Search failed");
@@ -906,39 +1061,42 @@ export function DashboardPage() {
 
   return (
     <div className="h-screen overflow-hidden bg-[var(--mr-page)] text-[var(--mr-text)]">
-      <header className="fixed left-0 right-0 top-0 z-40 border-b border-[var(--mr-border)] bg-white/95 shadow-[0_6px_20px_rgba(0,0,0,0.04)] backdrop-blur">
-        <div className="mr-container flex min-h-24 flex-col justify-center gap-2 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[15px] font-semibold leading-[22px] text-[var(--mr-text)]">MedRoute</span>
-              <span className="text-xs leading-4 text-[var(--mr-text-secondary)]">Case-Twin Routing</span>
-            </div>
+      <header className="fixed left-0 right-0 top-0 z-40 border-b border-zinc-200/80 bg-white/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/60">
+        <div className="mr-container flex h-16 items-center justify-between gap-4 py-3">
 
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="inline-flex h-9 items-center rounded-full border border-[var(--mr-border)] px-4 text-[14px] font-medium leading-5 text-[var(--mr-text)] transition hover:bg-[var(--mr-bg-subtle)]"
-              >
-                Case History
-              </button>
-              <button
-                type="button"
-                aria-label="Settings"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--mr-border)] text-[var(--mr-text-secondary)] transition hover:bg-[var(--mr-bg-subtle)]"
-              >
-                <Settings className="h-5 w-5" />
-              </button>
+          <div className="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity">
+            <div className="flex h-8 w-8 items-center justify-center rounded-[0.4rem] bg-gradient-to-tr from-zinc-900 to-zinc-800 text-white shadow-[0_1px_3px_rgba(0,0,0,0.1)] ring-1 ring-zinc-900/10 transition-transform duration-300 hover:scale-[1.03]">
+              <span className="text-[13px] font-bold tracking-wider">CT</span>
             </div>
+            <span className="text-[16px] font-semibold tracking-tight text-zinc-900">Case-Twin</span>
           </div>
 
-          <div className="flex items-center justify-center">
+          <div className="flex-1 flex justify-center">
             <Stepper step={step} onStepChange={handleStepChange} />
           </div>
+
+          <div className="flex items-center gap-4">
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium transition-all duration-200 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50">
+              <FolderOpen className="w-3.5 h-3.5" strokeWidth={2.5} /> My Cases
+            </button>
+
+            <button className="flex items-center gap-1.5 rounded-full bg-zinc-900 px-4 py-1.5 text-[13px] font-medium text-white shadow-md shadow-zinc-900/10 hover:bg-zinc-800 transition-all active:scale-[0.98]">
+              <Plus className="h-4 w-4" strokeWidth={2.5} />
+              New Case
+            </button>
+
+            <div className="w-px h-4 bg-zinc-200" />
+
+            <button aria-label="Settings" className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 transition-colors">
+              <Settings2 className="h-4 w-4" />
+            </button>
+          </div>
+
         </div>
       </header>
 
       <main
-        className={cn("mr-container h-full pb-6 pt-32", step === 0 ? "overflow-hidden" : "overflow-auto")}
+        className={cn("mr-container h-full pb-6 pt-24", step === 0 ? "overflow-hidden" : "overflow-auto")}
       >
         {step === 0 ? (
           <UploadScreen
@@ -951,26 +1109,34 @@ export function DashboardPage() {
           />
         ) : null}
 
-        {step === 1 ? <ReviewScreen tab={reviewTab} onTabChange={setReviewTab} /> : null}
-
-        {step === 2 ? (
+        {step === 1 ? (
           <>
             {searchError && (
-              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                ⚠️ {searchError} — Make sure the backend is running at localhost:8000.
+              <div className="mb-6 rounded-2xl border border-red-200/80 bg-red-50/50 p-4 shadow-sm backdrop-blur-md max-w-2xl mx-auto">
+                <div className="flex gap-3.5 items-start">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100/80 text-red-600 shadow-sm border border-red-200">
+                    <CloudOff className="h-4 w-4" strokeWidth={2.5} />
+                  </div>
+                  <div className="flex-1 mt-0.5">
+                    <h3 className="text-[14px] font-semibold text-red-900 tracking-tight">Search Unavailable</h3>
+                    <p className="mt-1 text-[13px] text-red-700 leading-relaxed font-medium">{searchError}</p>
+                  </div>
+                </div>
               </div>
             )}
             <MatchesScreen
               selectedMatch={selectedMatch}
               onSelectMatch={setSelectedMatch}
-              onContinueToRoute={() => setStep(3)}
+              onContinueToRoute={() => setStep(2)}
               items={matchResults}
               isLoading={isSearching}
+              originalFile={uploadedFile}
+              originalProfile={useDashboardStore.getState().profile}
             />
           </>
         ) : null}
 
-        {step === 3 ? (
+        {step === 2 ? (
           <RouteScreen
             equipment={equipment}
             maxTravelTime={maxTravelTime}
@@ -986,7 +1152,7 @@ export function DashboardPage() {
           />
         ) : null}
 
-        {step === 4 ? <MemoScreen /> : null}
+        {step === 3 ? <MemoScreen /> : null}
       </main>
     </div>
   );

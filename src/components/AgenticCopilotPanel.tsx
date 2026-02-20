@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDashboardStore } from "@/store/dashboardStore";
 import {
     Bot,
     Check,
@@ -10,6 +11,8 @@ import {
     UploadCloud,
     X,
     ChevronRight,
+    Stethoscope,
+    Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CaseProfile } from "@/lib/caseProfileTypes";
@@ -102,18 +105,18 @@ function CtaBanner({ onProceed }: { onProceed: () => void }) {
         <button
             type="button"
             onClick={onProceed}
-            className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-[var(--mr-action)] bg-gradient-to-r from-[#0a678f] to-[#0e84b5] px-5 py-4 text-left text-white shadow-[0_4px_16px_rgba(10,103,143,0.25)] transition hover:shadow-[0_6px_22px_rgba(10,103,143,0.38)]"
+            className="group flex w-full items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-5 py-4 text-left text-zinc-900 shadow-sm transition hover:bg-zinc-50"
         >
             <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20">
-                    <Sparkles className="h-4 w-4" />
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zinc-100 border border-zinc-200">
+                    <Stethoscope className="h-4 w-4 text-zinc-600" />
                 </div>
                 <div>
-                    <p className="text-sm font-semibold leading-5">Profile is ready for matching</p>
-                    <p className="text-xs leading-4 text-white/75">Click to find the closest case twins</p>
+                    <p className="text-sm font-semibold leading-5 text-zinc-900">Profile is ready for matching</p>
+                    <p className="text-xs leading-4 text-zinc-500">Click to find the closest case twins</p>
                 </div>
             </div>
-            <ChevronRight className="h-5 w-5 opacity-70 transition group-hover:translate-x-0.5" />
+            <ChevronRight className="h-5 w-5 text-zinc-400 opacity-70 transition group-hover:translate-x-0.5" />
         </button>
     );
 }
@@ -168,8 +171,8 @@ function MessageBubble({
     return (
         <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
             {!isUser && (
-                <div className="mr-2 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#dceef9]">
-                    <Bot className="h-3.5 w-3.5 text-[#0a678f]" />
+                <div className="mr-2 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-zinc-100 border border-zinc-200">
+                    <Activity className="h-4 w-4 text-[var(--mr-action)]" />
                 </div>
             )}
             <div className={cn("max-w-[82%] space-y-2", isUser && "items-end")}>
@@ -191,10 +194,10 @@ function MessageBubble({
                 {hasText && (
                     <div
                         className={cn(
-                            "rounded-2xl px-4 py-2.5 text-sm leading-6 whitespace-pre-wrap",
+                            "rounded-xl px-4 py-2.5 text-[14px] leading-relaxed whitespace-pre-wrap",
                             isUser
-                                ? "bg-[var(--mr-action)] text-white"
-                                : "border border-[var(--mr-border)] bg-white text-[var(--mr-text)] shadow-sm"
+                                ? "bg-zinc-800 text-white shadow-sm"
+                                : "border border-zinc-200 bg-white text-zinc-900 shadow-sm"
                         )}
                     >
                         {msg.content}
@@ -222,8 +225,10 @@ export function AgenticCopilotPanel({
     onFileForSearch,
     onReadyToProceed,
 }: AgenticCopilotPanelProps) {
-    const [state, setState] = useState<OrchestratorState>(createInitialState);
+    const state = useDashboardStore(s => s.orchestratorState);
+    const setState = useDashboardStore(s => s.setOrchestratorState);
     const stateRef = useRef<OrchestratorState>(state);
+
     const [inputText, setInputText] = useState("");
     const [pendingFiles, setPendingFiles] = useState<File[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -423,10 +428,10 @@ export function AgenticCopilotPanel({
     return (
         <div
             className={cn(
-                "flex h-full flex-col overflow-hidden rounded-2xl border bg-white shadow-[0_8px_32px_rgba(10,103,143,0.08)] transition-all duration-200",
+                "flex h-full flex-col overflow-hidden rounded-xl bg-white transition-all duration-200",
                 isDragOver
-                    ? "border-[var(--mr-action)] shadow-[0_0_0_3px_rgba(10,103,143,0.15),0_8px_32px_rgba(10,103,143,0.12)]"
-                    : "border-[var(--mr-border)]"
+                    ? "border-2 border-[var(--mr-action)]"
+                    : "border border-zinc-200 shadow-sm"
             )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -435,8 +440,8 @@ export function AgenticCopilotPanel({
             {/* ── Header ── */}
             <div className="flex shrink-0 items-center justify-between border-b border-[var(--mr-border)] bg-white px-5 py-4">
                 <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#0a678f] to-[#0e84b5]">
-                        <Bot className="h-4 w-4 text-white" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-zinc-100 border border-zinc-200">
+                        <Activity className="h-5 w-5 text-[var(--mr-action)]" />
                     </div>
                     <div>
                         <h2 className="text-[15px] font-semibold leading-5 text-[var(--mr-text)]">
@@ -445,7 +450,7 @@ export function AgenticCopilotPanel({
                         <div className="flex items-center gap-1.5">
                             <span
                                 className={cn(
-                                    "inline-block h-2 w-2 rounded-full transition-colors",
+                                    "inline-block h-1.5 w-1.5 rounded-full transition-colors",
                                     PHASE_DOT_CLASS[state.phase]
                                 )}
                             />
@@ -474,10 +479,6 @@ export function AgenticCopilotPanel({
                             {conf.score}%
                         </span>
                     </div>
-                    <div className="text-right">
-                        <p className="text-[11px] font-semibold text-[var(--mr-text)]">{conf.filled}/{conf.total} fields</p>
-                        <p className="text-[10px] text-[var(--mr-text-secondary)]">captured</p>
-                    </div>
                 </div>
             </div>
 
@@ -503,7 +504,7 @@ export function AgenticCopilotPanel({
             )}
 
             {/* ── Input area ── */}
-            <div className="shrink-0 border-t border-[var(--mr-border)] bg-[var(--mr-bg-subtle)] p-4">
+            <div className="shrink-0 bg-white p-5 pt-3">
                 {/* Pending file chips */}
                 {pendingFiles.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-2">
@@ -520,9 +521,9 @@ export function AgenticCopilotPanel({
                 )}
 
                 <div className={cn(
-                    "flex items-end gap-2 rounded-2xl border bg-white px-4 py-3 transition-shadow",
-                    isDragOver ? "border-[var(--mr-action)]" : "border-[var(--mr-border)]",
-                    "focus-within:border-[var(--mr-action)] focus-within:shadow-[0_0_0_3px_rgba(10,103,143,0.1)]"
+                    "flex items-end gap-3 rounded-2xl border border-zinc-200/80 bg-zinc-50/50 px-3 py-2 transition-all duration-300 shadow-sm",
+                    isDragOver ? "border-zinc-400 bg-white shadow-md ring-4 ring-zinc-500/10" : "hover:border-zinc-300/80 hover:bg-white",
+                    "focus-within:border-zinc-400 focus-within:bg-white focus-within:shadow-md focus-within:ring-4 focus-within:ring-zinc-500/10"
                 )}>
                     {/* File attach button */}
                     <input
@@ -537,9 +538,9 @@ export function AgenticCopilotPanel({
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
                         aria-label="Attach files"
-                        className="mb-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--mr-text-secondary)] transition hover:bg-[var(--mr-bg-subtle)] hover:text-[var(--mr-action)]"
+                        className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-zinc-400 transition-all duration-200 hover:bg-zinc-200/50 hover:text-zinc-700 active:scale-95"
                     >
-                        <UploadCloud className="h-4 w-4" />
+                        <UploadCloud className="h-5 w-5" strokeWidth={2.2} />
                     </button>
 
                     {/* Textarea */}
@@ -551,12 +552,12 @@ export function AgenticCopilotPanel({
                         onKeyDown={handleKeyDown}
                         placeholder={
                             state.phase === "greeting"
-                                ? "Paste a clinical note, drop a file, or describe the case…"
+                                ? "Ask Copilot, attach a file, or add evidence..."
                                 : state.phase === "ready"
-                                    ? "Profile complete — or continue to add detail…"
-                                    : "Answer the question above, or add more evidence…"
+                                    ? "Profile complete — or continue to add detail..."
+                                    : "Answer the question above, or add more evidence..."
                         }
-                        className="flex-1 resize-none bg-transparent text-sm leading-6 text-[var(--mr-text)] placeholder:text-[var(--mr-text-secondary)] focus:outline-none"
+                        className="flex-1 resize-none bg-transparent py-2.5 text-[14.5px] leading-relaxed text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
                         style={{ minHeight: "24px" }}
                     />
 
@@ -567,21 +568,21 @@ export function AgenticCopilotPanel({
                         disabled={!canSend}
                         aria-label="Send"
                         className={cn(
-                            "mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-all",
+                            "mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all duration-200",
                             canSend
-                                ? "bg-[var(--mr-action)] text-white hover:opacity-90 shadow-[0_2px_8px_rgba(10,103,143,0.3)]"
-                                : "bg-[var(--mr-border)] text-[var(--mr-text-secondary)] cursor-not-allowed"
+                                ? "bg-zinc-900 text-white hover:bg-zinc-800 hover:scale-[1.03] active:scale-[0.97] shadow-md shadow-zinc-900/15"
+                                : "bg-zinc-100 text-zinc-400 cursor-not-allowed"
                         )}
                     >
                         {isProcessing
                             ? <Loader2 className="h-4 w-4 animate-spin" />
-                            : <SendHorizontal className="h-4 w-4" />
+                            : <SendHorizontal className="h-4 w-4 ml-0.5" strokeWidth={2.5} />
                         }
                     </button>
                 </div>
 
-                <p className="mt-2 text-center text-[10px] leading-4 text-[var(--mr-text-secondary)]">
-                    Drag files anywhere into this panel · Press <kbd className="rounded border border-[var(--mr-border)] px-1 py-px text-[9px]">Enter</kbd> to send · <kbd className="rounded border border-[var(--mr-border)] px-1 py-px text-[9px]">Shift + Enter</kbd> for newline
+                <p className="mt-4 text-center text-[12px] font-medium text-zinc-400">
+                    Drag files anywhere • <kbd className="font-sans px-1.5 py-0.5 mx-0.5 rounded-md bg-zinc-100 border border-zinc-200/60 text-zinc-500 shadow-sm">Enter</kbd> to send • <kbd className="font-sans px-1.5 py-0.5 mx-0.5 rounded-md bg-zinc-100 border border-zinc-200/60 text-zinc-500 shadow-sm">Shift + Enter</kbd> for newline
                 </p>
             </div>
         </div>
