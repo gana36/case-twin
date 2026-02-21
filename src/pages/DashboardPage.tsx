@@ -1,11 +1,13 @@
 import { useCallback, useRef, useState, useMemo, useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useDashboardStore } from "@/store/dashboardStore";
-import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope } from "lucide-react";
+import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope, Activity } from "lucide-react";
 import { searchByImage, type MatchItem as ApiMatchItem } from "@/lib/mockUploadApis";
 import { computeProfileConfidence } from "@/lib/caseProfileUtils";
 import { emptyProfile, type CaseProfile } from "@/lib/caseProfileTypes";
 import { CaseProfileView } from "@/components/CaseProfileView";
 import { AgenticCopilotPanel } from "@/components/AgenticCopilotPanel";
+import { TwinProfileModal } from "@/components/TwinProfileModal";
+import { TwinChatPanel } from "@/components/TwinChatPanel";
 import { cn } from "@/lib/utils";
 import { X, ChevronLeft } from "lucide-react";
 
@@ -28,6 +30,7 @@ interface MatchItem {
   year?: string;
   radiology_view?: string;
   case_text?: string;
+  raw_payload?: Record<string, any>;
 }
 
 interface RouteCenter {
@@ -407,22 +410,28 @@ function MatchCard({
     return (
       <article
         className={cn(
-          "mr-surface flex flex-col gap-3 p-4 transition-all hover:bg-zinc-50 cursor-pointer overflow-hidden group",
+          "mr-surface flex flex-col gap-3 p-4 transition-all hover:bg-zinc-50 cursor-pointer overflow-hidden group shrink-0",
           selected ? "border-l-[4px] border-l-[var(--mr-action)] bg-blue-50/20" : "border-l-[4px] border-l-transparent"
         )}
         onClick={onSelect}
       >
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-2">
           <div className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-[3px] bg-white", ringClass)}>
-            <span className="text-sm font-semibold">{item.score}%</span>
+            <span className="text-[13px] font-semibold">{item.score}%</span>
           </div>
-          <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
+          <div className="flex-1 min-w-0 flex justify-end">
+            <OutcomeBadge variant={item.outcomeVariant} label={item.outcome} />
+          </div>
         </div>
-        <div className="space-y-1">
-          <h3 className="font-semibold text-zinc-900 text-[14px] leading-tight line-clamp-2 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</h3>
-          <p className="text-xs text-zinc-500 line-clamp-2">{item.summary}</p>
+        <div className="space-y-1.5 min-w-0">
+          <h3 className="font-semibold text-zinc-900 text-[14px] leading-snug line-clamp-2 group-hover:text-[var(--mr-action)] transition-colors break-words">{item.diagnosis}</h3>
+          <p className="text-[12px] leading-relaxed text-zinc-500 line-clamp-2 break-words">{item.summary}</p>
         </div>
-        <div className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider mt-1">{item.facility}</div>
+        <div className="flex flex-wrap text-[10px] font-medium text-zinc-400 uppercase tracking-wider mt-1 gap-x-2 gap-y-1">
+          <span className="truncate max-w-[120px]">{item.facility}</span>
+          {item.journal && <span className="truncate max-w-[100px]">• {item.journal}</span>}
+          {item.year && <span>• {item.year}</span>}
+        </div>
       </article>
     );
   }
@@ -430,7 +439,7 @@ function MatchCard({
   return (
     <article
       className={cn(
-        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center hover:shadow-md transition-all cursor-pointer group",
+        "mr-surface flex flex-col gap-4 p-5 lg:h-[132px] lg:flex-row lg:items-center hover:shadow-md transition-all cursor-pointer group shrink-0",
         selected && "border-l-[3px] border-l-[var(--mr-action)] bg-blue-50/10"
       )}
       onClick={onSelect}
@@ -439,9 +448,14 @@ function MatchCard({
         <span className="text-[17px] font-semibold leading-[22px]">{item.score}%</span>
       </div>
 
-      <div className="min-w-0 flex-1 space-y-1 pr-4">
-        <p className="truncate text-[16px] font-semibold leading-[22px] text-zinc-900 group-hover:text-[var(--mr-action)] transition-colors">{item.diagnosis}</p>
-        <p className="text-[14px] leading-relaxed text-zinc-500">{item.summary}</p>
+      <div className="min-w-0 flex-1 space-y-1.5 pr-4 py-1">
+        <p className="text-[15px] font-semibold leading-[20px] text-zinc-900 group-hover:text-[var(--mr-action)] transition-colors line-clamp-2 break-words">{item.diagnosis}</p>
+        <p className="text-[13px] leading-[20px] text-zinc-500 line-clamp-2 break-words">{item.summary}</p>
+        <div className="flex flex-wrap text-[11px] text-zinc-400 gap-x-3 gap-y-1 mt-1 font-medium">
+          {item.pmc_id && <span className="flex items-center gap-1"><FileText className="h-3 w-3" /> {item.pmc_id}</span>}
+          {item.year && <span>• {item.year}</span>}
+          {item.journal && <span className="truncate max-w-[150px]">• {item.journal}</span>}
+        </div>
       </div>
 
       <div className="flex shrink-0 flex-col gap-2 lg:items-end">
@@ -470,6 +484,10 @@ function MatchesScreen({
   originalProfile: CaseProfile | null;
 }) {
   const selected = selectedMatch !== null ? items[selectedMatch] : null;
+
+  // Modals state
+  const [showTwinProfile, setShowTwinProfile] = useState(false);
+  const [showTwinChat, setShowTwinChat] = useState(false);
 
   // Keep track of which match ID we've loaded insights for
   const [lastInsightsMatchIdx, setLastInsightsMatchIdx] = useState<number | null>(null);
@@ -548,10 +566,10 @@ function MatchesScreen({
       {/* Left List Container */}
       <div className={cn(
         "flex flex-col gap-5 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)]",
-        selected === null ? "w-full max-w-[800px] mx-auto opacity-100" : "w-[300px] xl:w-[350px] shrink-0 opacity-100"
+        selected === null ? "w-full max-w-[800px] mx-auto opacity-100" : "w-full max-w-[300px] xl:max-w-[380px] shrink-0 opacity-100"
       )}>
         <div className="flex items-center justify-between shrink-0">
-          <h1 className={cn("font-semibold text-zinc-900 tracking-tight transition-all", selected === null ? "text-[28px]" : "text-[20px]")}>
+          <h1 className={cn("font-semibold text-zinc-900 tracking-tight transition-all", selected === null ? "text-[28px]" : "text-[20px] line-clamp-1")}>
             {selected === null ? "Closest Case Twins" : "Top Matches"}
           </h1>
           {selected === null && (
@@ -576,7 +594,7 @@ function MatchesScreen({
           </div>
         ) : (
           <div className={cn(
-            "overflow-y-auto pb-8 pr-2 -mr-2",
+            "overflow-y-auto flex-1 min-h-0 pb-8 pr-2 -mr-2",
             selected === null ? "flex flex-col gap-4" : "flex flex-col gap-3"
           )}>
             {items.map((item, idx) => (
@@ -624,8 +642,8 @@ function MatchesScreen({
 
               <div className="w-px h-5 bg-zinc-200 mx-1" />
 
-              <MedButton variant="secondary" size="sm" onClick={() => onSelectMatch(null)}>
-                Back to list
+              <MedButton variant="secondary" size="sm" onClick={() => setShowTwinProfile(true)}>
+                Full Profile
               </MedButton>
               <MedButton variant="primary" size="sm" onClick={onContinueToRoute}>
                 Continue to routing
@@ -668,11 +686,14 @@ function MatchesScreen({
 
                 {/* Right: Matched Case */}
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-[15px] font-semibold text-zinc-900 flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <h3 className="text-[15px] font-semibold text-zinc-900 flex flex-wrap items-center gap-2">
                       Historical Case Twin
                       <OutcomeBadge variant={selected.outcomeVariant} label={`${selected.score}% Match`} />
                     </h3>
+                    <div className="flex gap-2">
+                      {/* Buttons moved elsewhere */}
+                    </div>
                   </div>
                   <div className="aspect-[4/3] rounded-2xl border border-zinc-200 overflow-hidden bg-zinc-100 relative shadow-inner">
                     {selected.image_url ? (
@@ -720,12 +741,12 @@ function MatchesScreen({
                 <h3 className="text-[18px] font-semibold text-zinc-900 mb-5">Clinical Comparison Matrix</h3>
 
                 <div className="rounded-xl border border-zinc-200 bg-white overflow-hidden shadow-sm">
-                  <table className="w-full text-left border-collapse text-[14px]">
+                  <table className="w-full table-fixed text-left border-collapse text-[14px]">
                     <thead>
                       <tr className="bg-zinc-50 border-b border-zinc-200/80">
                         <th className="py-3 px-4 font-semibold text-zinc-500 uppercase tracking-wider text-xs w-1/4">Clinical Feature</th>
-                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8">Your Uploaded Case</th>
-                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-3/8 flex items-center gap-2">
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-[37.5%]">Your Uploaded Case</th>
+                        <th className="py-3 px-4 font-semibold text-zinc-900 border-l border-zinc-200/80 w-[37.5%] flex items-center gap-2">
                           Historical Twin <Check className="h-4 w-4 text-[var(--mr-success)]" />
                         </th>
                       </tr>
@@ -776,16 +797,25 @@ function MatchesScreen({
                       <tr className="hover:bg-zinc-50/50 transition-colors">
                         <td className="py-3 px-4 text-zinc-600 font-medium">Imaging Findings</td>
                         <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
-                          {originalProfile?.findings.lungs.consolidation_present === "yes" && "• Consolidation "}
-                          {originalProfile?.findings.lungs.edema_present === "yes" && "• Edema "}
-                          {originalProfile?.findings.pleura.effusion_present === "yes" && "• Pleural Effusion "}
-                          {(!originalProfile?.findings.lungs.consolidation_present && !originalProfile?.findings.lungs.edema_present && !originalProfile?.findings.pleura.effusion_present) && "—"}
+                          <div className="flex flex-col gap-1 text-[13px]">
+                            {originalProfile?.findings.lungs.consolidation_present === "yes" && <span>• Consolidation </span>}
+                            {originalProfile?.findings.lungs.edema_present === "yes" && <span>• Edema </span>}
+                            {originalProfile?.findings.pleura.effusion_present === "yes" && <span>• Pleural Effusion </span>}
+                            {(!originalProfile?.findings.lungs.consolidation_present && !originalProfile?.findings.lungs.edema_present && !originalProfile?.findings.pleura.effusion_present) && <span className="text-zinc-400 italic">No structured findings extracted.</span>}
+                          </div>
                         </td>
                         <td className="py-3 px-4 border-l border-zinc-200/80 text-zinc-700">
-                          {selected.summary.toLowerCase().includes("consolidation") && "• Consolidation "}
-                          {selected.summary.toLowerCase().includes("edema") && "• Edema "}
-                          {selected.summary.toLowerCase().includes("effusion") && "• Pleural Effusion "}
-                          {(!selected.summary.toLowerCase().includes("consolidation") && !selected.summary.toLowerCase().includes("edema") && !selected.summary.toLowerCase().includes("effusion")) && "See literature pattern"}
+                          <div className="flex flex-col gap-1 text-[13px]">
+                            {selected.raw_payload?.findings?.lungs?.consolidation_present === "yes" && <span>• Lung Consolidation</span>}
+                            {selected.raw_payload?.findings?.lungs?.edema_present === "yes" && <span>• Pulmonary Edema</span>}
+                            {selected.raw_payload?.findings?.lungs?.atelectasis_present === "yes" && <span>• Atelectasis</span>}
+                            {selected.raw_payload?.findings?.pleura?.effusion_present === "yes" && <span>• Pleural Effusion</span>}
+                            {selected.raw_payload?.findings?.pleura?.pneumothorax_present === "yes" && <span>• Pneumothorax</span>}
+                            {selected.raw_payload?.findings?.cardiomediastinal?.cardiomegaly === "yes" && <span>• Cardiomegaly</span>}
+                            {(!selected.raw_payload?.findings || Object.keys(selected.raw_payload.findings).length === 0) && (
+                              <span className="text-zinc-400 italic">Review clinical literature</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
@@ -796,12 +826,18 @@ function MatchesScreen({
                           Active clinical case
                         </td>
                         <td className="py-3 px-4 border-l border-zinc-200/80">
-                          <div className="flex flex-col gap-1 text-sm">
-                            <span className="font-medium text-zinc-900">{selected.facility}</span>
-                            <a href={`https://www.ncbi.nlm.nih.gov/pmc/articles/${selected.pmc_id}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
-                              {selected.pmc_id}
-                            </a>
-                            {selected.journal && <span className="text-zinc-500">{selected.journal} ({selected.year})</span>}
+                          <div className="flex flex-col gap-1 text-[13px]">
+                            <span className="font-semibold text-zinc-900 break-words line-clamp-2">{selected.article_title || selected.diagnosis}</span>
+                            <span className="font-medium text-zinc-600 max-w-full truncate">{selected.facility}</span>
+                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-zinc-500 mt-1">
+                              {selected.pmc_id && (
+                                <a href={selected.raw_payload?.provenance?.source_url || `https://www.ncbi.nlm.nih.gov/pmc/articles/${selected.pmc_id}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">
+                                  {selected.pmc_id}
+                                </a>
+                              )}
+                              {selected.journal && <span className="truncate max-w-[120px]">• {selected.journal}</span>}
+                              {selected.year && <span>• {selected.year}</span>}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -813,9 +849,29 @@ function MatchesScreen({
               </div>
 
             </div>
+            {/* Chat FAB */}
+            <button
+              onClick={() => setShowTwinChat(true)}
+              className="absolute bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 text-white shadow-xl hover:bg-zinc-800 hover:scale-105 active:scale-95 transition-all z-10"
+              aria-label="Open clinical chat context"
+            >
+              <Activity className="h-6 w-6" />
+            </button>
           </div>
         </div>
       )}
+
+      {/* Render Twin Modals */}
+      <TwinProfileModal
+        isOpen={showTwinProfile}
+        onClose={() => setShowTwinProfile(false)}
+        match={selected}
+      />
+      <TwinChatPanel
+        isOpen={showTwinChat}
+        onClose={() => setShowTwinChat(false)}
+        match={selected}
+      />
     </div>
   );
 }
@@ -1048,6 +1104,7 @@ export function DashboardPage() {
 
         const profileData = useDashboardStore.getState().profile;
         const results = await searchByImage(fileToSearch, profileData || undefined);
+        console.log("FULL MATCHED DATA:", results);
         setMatchResults(results);
       } catch (err) {
         setSearchError(err instanceof Error ? err.message : "Search failed");
