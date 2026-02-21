@@ -304,3 +304,77 @@ function extractPatchFromText(text: string): Partial<CaseCardDraft> {
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export interface RouteCenter {
+  name: string;
+  capability: string;
+  travel: string;
+  reason: string;
+  lat: number;
+  lng: number;
+}
+
+export async function findHospitalsRoute(
+  diagnosis: string,
+  location?: string,
+  equipment?: Record<string, boolean>,
+  maxTravelTime?: number
+): Promise<RouteCenter[]> {
+  const formData = new FormData();
+  formData.append("diagnosis", diagnosis);
+  if (location) {
+    formData.append("location", location);
+  }
+
+  // Format equipment into a comma separated list of the checked items
+  if (equipment) {
+    const requiredEq = Object.entries(equipment)
+      .filter(([_, isChecked]) => isChecked)
+      .map(([name]) => name)
+      .join(", ");
+    if (requiredEq) {
+      formData.append("equipment", requiredEq);
+    }
+  }
+
+  if (maxTravelTime) {
+    formData.append("maxTravelTime", maxTravelTime.toString());
+  }
+
+  const response = await fetch(`${API_BASE}/search_hospitals`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let errMessage = `Routing fell back (${response.status})`;
+    try {
+      const data = await response.json();
+      errMessage = data.detail || data.error || JSON.stringify(data);
+    } catch {
+      errMessage = await response.text() || errMessage;
+    }
+    console.error(errMessage);
+    throw new Error(errMessage);
+  }
+
+  const data = await response.json() as any;
+  console.log("RAW ROUTE DATA FROM BACKEND:", data);
+  let centers = data.centers || data.hospitals || data;
+
+  if (!Array.isArray(centers)) {
+    if (centers && Array.isArray(centers.centers)) {
+      centers = centers.centers;
+    } else if (centers && Array.isArray(centers.hospitals)) {
+      centers = centers.hospitals;
+    } else if (Array.isArray(data)) {
+      centers = data;
+    } else {
+      console.warn("Could not find array in route response, falling back to empty.");
+      centers = [];
+    }
+  }
+
+  console.log("PARSED CENTERS ARRAY:", centers);
+  return centers as RouteCenter[];
+}
