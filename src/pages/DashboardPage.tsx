@@ -1,15 +1,27 @@
 import { useCallback, useRef, useState, useMemo, useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useDashboardStore } from "@/store/dashboardStore";
-import { Check, FileText, Loader2, MapPin, Settings, Settings2, Sparkles, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope, Activity } from "lucide-react";
-import { searchByImage, type MatchItem as ApiMatchItem } from "@/lib/mockUploadApis";
+import { Check, FileText, Loader2, MapPin, Settings2, Stethoscope, FolderOpen, Plus, HeartPulse, CloudOff, Scan, Microscope, Activity, ChevronLeft } from "lucide-react";
+import { searchByImage, findHospitalsRoute } from "@/lib/mockUploadApis";
 import { computeProfileConfidence } from "@/lib/caseProfileUtils";
-import { emptyProfile, type CaseProfile } from "@/lib/caseProfileTypes";
+import { type CaseProfile } from "@/lib/caseProfileTypes";
 import { CaseProfileView } from "@/components/CaseProfileView";
 import { AgenticCopilotPanel } from "@/components/AgenticCopilotPanel";
 import { TwinProfileModal } from "@/components/TwinProfileModal";
 import { TwinChatPanel } from "@/components/TwinChatPanel";
 import { cn } from "@/lib/utils";
-import { X, ChevronLeft } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+const defaultIcon = new L.Icon({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
 type Step = 0 | 1 | 2 | 3;
 type OutcomeVariant = "success" | "warning" | "neutral";
@@ -30,14 +42,16 @@ interface MatchItem {
   year?: string;
   radiology_view?: string;
   case_text?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   raw_payload?: Record<string, any>;
 }
-
 interface RouteCenter {
   name: string;
   capability: string;
   travel: string;
   reason: string;
+  lat?: number;
+  lng?: number;
 }
 
 const stepLabels = ["Upload", "Matches", "Route", "Memo"] as const;
@@ -90,26 +104,6 @@ const matchItems: MatchItem[] = [
   }
 ];
 
-const routeCenters: RouteCenter[] = [
-  {
-    name: "Mayo Clinic — Rochester",
-    capability: "100%",
-    travel: "2h 10m",
-    reason: "Interventional Pulmonology + Thoracic Oncology"
-  },
-  {
-    name: "Cleveland Clinic",
-    capability: "95%",
-    travel: "1h 55m",
-    reason: "Thoracic surgery + Clinical trials"
-  },
-  {
-    name: "Mass General",
-    capability: "90%",
-    travel: "3h 05m",
-    reason: "Radiation oncology + Research program"
-  }
-];
 
 function SurfaceCard({
   className,
@@ -896,6 +890,9 @@ function RouteScreen({
   equipment,
   maxTravelTime,
   language,
+  centers,
+  isLoading,
+  error,
   onEquipmentToggle,
   onMaxTravelTimeChange,
   onLanguageChange
@@ -903,28 +900,74 @@ function RouteScreen({
   equipment: Record<string, boolean>;
   maxTravelTime: number;
   language: string;
+  centers: RouteCenter[];
+  isLoading: boolean;
+  error: string | null;
   onEquipmentToggle: (key: string, value: boolean) => void;
   onMaxTravelTimeChange: (value: number) => void;
   onLanguageChange: (value: string) => void;
 }) {
+  const safeCenters = Array.isArray(centers) ? centers : [];
+  const validCenters = safeCenters.filter(c => typeof c.lat === "number" && typeof c.lng === "number");
+  const mapCenter: [number, number] = validCenters.length > 0
+    ? [validCenters[0].lat, validCenters[0].lng]
+    : [39.8283, -98.5795]; // Default to US center
+
   return (
     <div className="grid gap-6 lg:grid-cols-[680px_416px]">
       <div className="space-y-4">
-        <SurfaceCard className="h-80 relative overflow-hidden p-0 border-zinc-200">
-          <div className="absolute inset-0 bg-[#F3F4F6]">
-            <MapPin className="absolute left-[20%] top-[28%] h-5 w-5 text-[var(--mr-text)]" />
-            <MapPin className="absolute left-[46%] top-[42%] h-5 w-5 text-[var(--mr-text)]" />
-            <MapPin className="absolute left-[72%] top-[34%] h-5 w-5 text-[var(--mr-text)]" />
-            <span className="absolute bottom-3 left-3 rounded-full bg-white px-3 py-1 text-xs leading-4 text-[var(--mr-text-secondary)]">
-              Travel time estimates are simulated for demo.
-            </span>
+        <SurfaceCard className="h-80 relative overflow-hidden p-0 border-zinc-200 z-0">
+          <div className="absolute inset-0 z-0">
+            <MapContainer
+              center={mapCenter}
+              zoom={centers.length > 0 ? 4 : 3}
+              scrollWheelZoom={true}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              />
+              {validCenters.map((center, idx) => (
+                <Marker key={idx} position={[center.lat, center.lng]} icon={defaultIcon}>
+                  <Popup>
+                    <div className="text-sm">
+                      <strong>{center.name}</strong><br />
+                      Capability: {center.capability}<br />
+                      Travel: {center.travel}
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
+            </MapContainer>
           </div>
+          <span className="absolute bottom-3 left-3 z-[1000] rounded-full bg-white/90 backdrop-blur-md px-3 py-1 text-xs leading-4 text-[var(--mr-text-secondary)] shadow-sm border border-zinc-200">
+            Powered by You.com RAG API
+          </span>
         </SurfaceCard>
 
         <SurfaceCard className="gap-0 p-0">
-          {routeCenters.map((center) => (
-            <CenterRow key={center.name} center={center} />
-          ))}
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
+              <Loader2 className="h-6 w-6 animate-spin mb-3 text-[var(--mr-action)]" />
+              <p className="text-sm">Searching You.com for top-tier specialized centers...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-12 text-red-500 px-6 text-center">
+              <CloudOff className="h-6 w-6 mb-3" />
+              <p className="text-sm font-medium">Failed to load route centers</p>
+              <p className="text-xs mt-1 text-red-400">{error}</p>
+            </div>
+          ) : centers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-zinc-500">
+              <MapPin className="h-6 w-6 mb-3 opacity-50" />
+              <p className="text-sm">No centers found for this condition.</p>
+            </div>
+          ) : (
+            centers.map((center) => (
+              <CenterRow key={center.name} center={center} />
+            ))
+          )}
         </SurfaceCard>
       </div>
 
@@ -1088,6 +1131,43 @@ export function DashboardPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
+  const [routeCenters, setRouteCenters] = useState<RouteCenter[]>([]);
+  const [isRouting, setIsRouting] = useState(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+
+  const fetchRoute = async () => {
+    const condition = selectedMatch !== null ? matchResults[selectedMatch].diagnosis : "complex respiratory condition";
+    setIsRouting(true);
+    setRoutingError(null);
+
+    // Try to get user location
+    let userLocation = "New York, NY"; // Fallback
+    try {
+      if ("geolocation" in navigator) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+        });
+        userLocation = `${position.coords.latitude}, ${position.coords.longitude}`;
+      }
+    } catch (e) {
+      console.warn("Geolocation denied or failed, falling back to default.", e);
+    }
+
+    try {
+      const results = await findHospitalsRoute(
+        condition,
+        userLocation,
+        equipment,
+        maxTravelTime
+      );
+      setRouteCenters(results);
+    } catch (err) {
+      setRoutingError(err instanceof Error ? err.message : "Routing search failed");
+    } finally {
+      setIsRouting(false);
+    }
+  };
+
   const handleStepChange = async (next: Step) => {
     // When advancing to the Matches step (1), trigger real search
     if (next === 1 && matchResults.length === 0) {
@@ -1111,10 +1191,22 @@ export function DashboardPage() {
       } finally {
         setIsSearching(false);
       }
+    } else if (next === 2 && routeCenters.length === 0) {
+      setStep(next);
+      await fetchRoute();
     } else {
       setStep(next);
     }
   };
+
+  // Re-fetch route when filters change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Only re-fetch if we are actually on the route screen and already have a baseline match
+    if (step === 2 && routeCenters.length > 0) {
+      fetchRoute();
+    }
+  }, [equipment, maxTravelTime]);
 
   return (
     <div className="h-screen overflow-hidden bg-[var(--mr-page)] text-[var(--mr-text)]">
@@ -1198,6 +1290,9 @@ export function DashboardPage() {
             equipment={equipment}
             maxTravelTime={maxTravelTime}
             language={language}
+            centers={routeCenters}
+            isLoading={isRouting}
+            error={routingError}
             onEquipmentToggle={(key, value) =>
               setEquipment((current) => ({
                 ...current,

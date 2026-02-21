@@ -135,18 +135,26 @@ def search_similar(embedding: list[float], profile_data: dict = None, limit: int
 
         # ── Diagnosis ────────────────────────────────────────────────────────
         # primary_suspected is stored as a list; fall back to caption or title
-        primary = p.get("diagnosis") or p.get("article_title", "Unknown")
+        assessment_diag = p.get("assessment", {}).get("diagnosis_primary", "")
+        primary = assessment_diag or p.get("diagnosis", "") or p.get("provenance", {}).get("article_title", "Unknown")
         diagnosis = primary[:80] if primary else "Unknown"
 
         # ── Summary ──────────────────────────────────────────────────────────
-        summary = p.get("summary", "")
-        if not summary:
-            case_text = p.get("case_text", "")
-            summary = case_text[:120] + "…" if len(case_text) > 120 else case_text
-        summary = summary or "No case summary available."
+        summary_obj = p.get("summary", {})
+        summary_text = ""
+        if isinstance(summary_obj, dict):
+            summary_text = summary_obj.get("one_liner", "")
+        elif isinstance(summary_obj, str):
+            summary_text = summary_obj
+            
+        case_text = p.get("presentation", {}).get("hpi", p.get("case_text", ""))
+        
+        if not summary_text:
+            summary_text = case_text[:120] + "…" if len(case_text) > 120 else case_text
+        summary = summary_text or "No case summary available."
 
         # ── Outcome ──────────────────────────────────────────────────────────
-        outcome_success = p.get("outcome_success", "")  # "yes" / "no"
+        outcome_success = p.get("outcome", {}).get("success", "")  # "yes" / "no"
         if outcome_success == "yes":
             outcome_label = "Favorable"
             outcome_variant = "success"
@@ -154,7 +162,7 @@ def search_similar(embedding: list[float], profile_data: dict = None, limit: int
             outcome_label = "Unfavorable"
             outcome_variant = "neutral"
         else:
-            outcome_label = p.get("radiology_view", "Frontal").capitalize()
+            outcome_label = p.get("study", {}).get("view_position", "Frontal").capitalize()
             outcome_variant = "warning" if v_score >= 0.6 else "neutral"
 
         # ── Score tier ───────────────────────────────────────────────────────
@@ -167,18 +175,18 @@ def search_similar(embedding: list[float], profile_data: dict = None, limit: int
             "score": round(v_score * 100),
             "diagnosis": diagnosis,
             "summary": summary,
-            "facility": p.get("pmc_id", "Unknown"),
+            "facility": p.get("provenance", {}).get("dataset_name", p.get("hospital", "Unknown")),
             "outcome": outcome_label,
             "outcomeVariant": outcome_variant,
             "image_url": p.get("image_url", ""),
-            "age": p.get("age"),
-            "gender": p.get("gender"),
-            "pmc_id": p.get("pmc_id"),
-            "article_title": p.get("article_title"),
-            "journal": p.get("journal"),
-            "year": p.get("year"),
-            "radiology_view": p.get("radiology_view"),
-            "case_text": p.get("case_text", ""),
+            "age": p.get("patient", {}).get("age_years"),
+            "gender": p.get("patient", {}).get("sex"),
+            "pmc_id": p.get("provenance", {}).get("pmc_id"),
+            "article_title": p.get("provenance", {}).get("article_title"),
+            "journal": p.get("provenance", {}).get("journal"),
+            "year": p.get("provenance", {}).get("year"),
+            "radiology_view": p.get("study", {}).get("view_position", "Frontal"),
+            "case_text": p.get("presentation", {}).get("hpi", p.get("case_text", "")),
         })
 
     return matches
